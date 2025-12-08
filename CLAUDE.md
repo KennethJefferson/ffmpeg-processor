@@ -38,21 +38,33 @@ fmp -i <path> [options]
 
 ## Architecture
 
-### Core (`src/core/`)
-- `types.ts` - Type definitions (CLIOptions, VideoFile, ConversionJob, etc.)
-- `scanner.ts` - Directory scanning, companion file detection
-- `converter.ts` - FFmpeg spawning, progress parsing
-- `queue.ts` - Parallel job queue with concurrency control
-
-### Runtime (`src/runtime/`)
-- `cli-setup.ts` - Commander.js CLI parsing, TUI launch
-
-### TUI (`src/cli/tui/`)
-- `app.tsx` - Root app with Ctrl+C shutdown handler
-- `launcher.ts` - SolidJS transform preload
-- `component/` - Logo, ProgressBar, FileList, StatsPanel
-- `context/` - ThemeProvider (violet), ProcessorStateProvider
-- `routes/processing.tsx` - Main processing view
+```
+src/
+├── core/                    # Business logic
+│   ├── types.ts             # Type definitions (CLIOptions, VideoFile, ConversionJob)
+│   ├── scanner.ts           # Directory scanning, companion file detection
+│   ├── converter.ts         # FFmpeg spawning, progress parsing
+│   ├── queue.ts             # Parallel job queue with concurrency control
+│   └── index.ts             # Core exports
+├── runtime/
+│   └── cli-setup.ts         # Entry point: Commander.js CLI parsing, TUI launch
+└── cli/
+    ├── index.ts             # CLI exports
+    └── tui/                  # Terminal User Interface
+        ├── app.tsx           # Root app with Ctrl+C shutdown handler
+        ├── launcher.ts       # SolidJS transform preload
+        ├── component/        # UI components
+        │   ├── logo.tsx      # ASCII art header
+        │   ├── progress-bar.tsx
+        │   ├── file-list.tsx
+        │   └── stats-panel.tsx
+        ├── context/          # State management
+        │   ├── theme/        # Violet theme (#A855F7)
+        │   ├── processor-state.tsx
+        │   └── helper.tsx
+        └── routes/
+            └── processing.tsx # Main processing view
+```
 
 ## Key Behaviors
 

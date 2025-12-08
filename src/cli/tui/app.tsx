@@ -1,5 +1,5 @@
 /** @jsxImportSource @opentui/solid */
-import { render, VignetteEffect, ScanlineEffect } from '@opentui/solid';
+import { render } from '@opentui/solid';
 import { onMount, onCleanup } from 'solid-js';
 import { ThemeProvider } from './context/theme.js';
 import { ProcessorStateProvider, useProcessorState } from './context/processor-state.js';
@@ -106,10 +106,6 @@ export async function startTUI(options: CLIOptions): Promise<void> {
         height="100%"
         overflow="hidden"
       >
-        {/* Post-processing effects for that polished look */}
-        <VignetteEffect strength={0.3} />
-        <ScanlineEffect luminanceChange={0.95} lineInterval={2} />
-
         {/* Main app */}
         <App options={options} mode={mode} />
       </box>

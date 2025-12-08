@@ -101,7 +101,16 @@ bun dev -- -i "C:\Videos" -r
 bun run typecheck
 
 # Build standalone executable
-bun build
+bun run build
+```
+
+## Project Structure
+
+```
+src/
+├── core/           # Business logic (scanner, converter, queue)
+├── runtime/        # Entry point (cli-setup.ts)
+└── cli/tui/        # Terminal UI (SolidJS components, context, routes)
 ```
 
 ## Tech Stack

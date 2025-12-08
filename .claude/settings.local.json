@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(tree:*)",
+      "Bash(bun install)",
+      "Bash(bun run build:*)",
+      "Bash(.ffmpeg-processor.exe -i \"K:\\Downloads\\New Folder\" -r -c 5)",
+      "Bash(\"/c/Users/Tony Baloney/.bun/bin/bun.exe\" install)",
+      "Bash(\"/c/Users/Tony Baloney/.bun/bin/bun.exe\" run build)",
+      "Bash(\"/c/Users/Tony Baloney/.bun/bin/bun.exe\" start -- -i \"K:\\Downloads\\New Folder\" -r -c 5)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
