@@ -1,0 +1,47 @@
+{
+  "name": "ffmpeg-processor",
+  "version": "1.0.0",
+  "description": "Batch video-to-MP3 converter with TUI interface for transcription preparation",
+  "type": "module",
+  "bin": {
+    "ffmpeg-processor": "bin/ffmpeg-processor.js",
+    "fmp": "bin/ffmpeg-processor.js"
+  },
+  "files": [
+    "bin/",
+    "src/"
+  ],
+  "engines": {
+    "node": ">=20.10.0",
+    "bun": ">=1.3.0"
+  },
+  "scripts": {
+    "dev": "bun --conditions=browser src/runtime/cli-setup.ts",
+    "start": "bun --conditions=browser src/runtime/cli-setup.ts",
+    "build": "bun build src/runtime/cli-setup.ts --compile --outfile=ffmpeg-processor",
+    "lint": "eslint \"{src,tests}/**/*.{ts,tsx}\"",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@opentui/core": "0.1.48",
+    "@opentui/solid": "0.1.48",
+    "commander": "^14.0.1",
+    "solid-js": "1.9.9"
+  },
+  "devDependencies": {
+    "@types/bun": "1.3.0",
+    "@types/node": "^20.12.7",
+    "typescript": "^5.4.5"
+  },
+  "keywords": [
+    "ffmpeg",
+    "video",
+    "mp3",
+    "converter",
+    "transcription",
+    "tui",
+    "cli"
+  ],
+  "author": "",
+  "license": "MIT"
+}

@@ -1,0 +1,99 @@
+{
+  "$schema": "https://opencode.ai/theme.json",
+  "defs": {
+    "darkStep1": "#1a1625",
+    "darkStep2": "#13111a",
+    "darkStep3": "#211d2e",
+    "darkStep4": "#2d2640",
+    "darkStep5": "#3a3252",
+    "darkStep6": "#473e64",
+    "darkStep7": "#5a4f7a",
+    "darkStep8": "#7a6b9e",
+    "darkStep9": "#A855F7",
+    "darkStep10": "#9333EA",
+    "darkStep11": "#9ca3af",
+    "darkStep12": "#f3f4f6",
+    "darkSecondary": "#C084FC",
+    "darkMutedViolet": "#8B7BA8",
+    "darkPurple": "#7C3AED",
+    "darkRed": "#ef4444",
+    "darkGreen": "#22c55e",
+    "darkYellow": "#eab308",
+    "darkCyan": "#06b6d4",
+
+    "lightStep1": "#faf5ff",
+    "lightStep2": "#f3e8ff",
+    "lightStep3": "#e9d5ff",
+    "lightStep4": "#d8b4fe",
+    "lightStep5": "#c084fc",
+    "lightStep6": "#a855f7",
+    "lightStep7": "#9333ea",
+    "lightStep8": "#7c3aed",
+    "lightStep9": "#6d28d9",
+    "lightStep10": "#5b21b6",
+    "lightStep11": "#4c1d95",
+    "lightStep12": "#1e1b2e"
+  },
+  "theme": {
+    "primary": {
+      "dark": "darkStep9",
+      "light": "lightStep9"
+    },
+    "secondary": {
+      "dark": "darkSecondary",
+      "light": "lightStep7"
+    },
+    "error": {
+      "dark": "darkRed",
+      "light": "darkRed"
+    },
+    "warning": {
+      "dark": "darkYellow",
+      "light": "darkYellow"
+    },
+    "success": {
+      "dark": "darkGreen",
+      "light": "darkGreen"
+    },
+    "info": {
+      "dark": "darkCyan",
+      "light": "lightStep7"
+    },
+    "text": {
+      "dark": "darkStep12",
+      "light": "lightStep12"
+    },
+    "textMuted": {
+      "dark": "darkStep11",
+      "light": "lightStep8"
+    },
+    "background": {
+      "dark": "darkStep1",
+      "light": "lightStep1"
+    },
+    "backgroundPanel": {
+      "dark": "darkStep2",
+      "light": "lightStep2"
+    },
+    "backgroundElement": {
+      "dark": "darkStep3",
+      "light": "lightStep3"
+    },
+    "border": {
+      "dark": "darkStep7",
+      "light": "lightStep5"
+    },
+    "borderActive": {
+      "dark": "darkStep8",
+      "light": "lightStep6"
+    },
+    "borderSubtle": {
+      "dark": "darkStep6",
+      "light": "lightStep4"
+    },
+    "violet": {
+      "dark": "darkPurple",
+      "light": "lightStep9"
+    }
+  }
+}
