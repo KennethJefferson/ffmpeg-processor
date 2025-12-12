@@ -5,11 +5,12 @@ A CLI-based batch video-to-MP3 converter with a beautiful violet-themed Terminal
 ## Features
 
 - **Batch Processing** - Convert entire directories of video files at once
-- **Parallel Conversion** - Up to 10 concurrent FFmpeg processes
+- **Parallel Conversion** - Up to 25 concurrent FFmpeg processes
+- **Streaming Pipeline** - Processing starts immediately while scanning continues (hot start)
 - **Smart Skip Logic** - Automatically skips videos that already have `.mp3` or `.srt` files
-- **Beautiful TUI** - Violet-themed interface with progress bars and real-time status
+- **Beautiful TUI** - Two-column layout with color-coded info panels (violet, pink, cyan, teal, orange)
 - **Transcription Optimized** - Outputs small MP3 files (16kHz mono, 32kbps) perfect for speech-to-text
-- **Graceful Shutdown** - Ctrl+C once to finish active jobs, twice to force stop
+- **Graceful Shutdown** - Ctrl+C once to finish active jobs (with notification), twice to force stop
 
 ## Installation
 
@@ -47,7 +48,7 @@ bun start -- -i "C:\Videos" -v
 |--------|-------|-------------|---------|
 | `--input <path>` | `-i` | Input directory (required) | - |
 | `--recursive` | `-r` | Search subdirectories | `false` |
-| `--concurrency <n>` | `-c` | Max parallel conversions | `10` |
+| `--concurrency <n>` | `-c` | Max parallel conversions (1-25) | `10` |
 | `--dry-run` | `-d` | Preview without converting | `false` |
 | `--verbose` | `-v` | Show FFmpeg output | `false` |
 
@@ -68,7 +69,7 @@ The processor automatically skips video files that already have companion files 
 ## Keyboard Controls
 
 During processing:
-- **Ctrl+C (once)** - Graceful shutdown: finish active conversions, skip remaining
+- **Ctrl+C (once)** - Graceful shutdown: finish active conversions, skip remaining (shows warning banner)
 - **Ctrl+C (twice)** - Immediate shutdown: kill all FFmpeg processes
 
 ## TUI Preview
@@ -76,19 +77,27 @@ During processing:
 ```
 █▀▀ █▀▀ █▀▄▀█ █▀█ █▀▀ █▀▀   █▀█ █▀█ █▀█ █▀▀ █▀▀ █▀ █▀ █▀█ █▀█
 █▀  █▀  █ ▀ █ █▀▀ ██▄ █▄█   █▀▀ █▀▄ █▄█ █▄▄ ██▄ ▄█ ▄█ █▄█ █▀▄
+        >>> Video → MP3 >>> Batch Converter >>>
 
-│████████████░░░░░░░░│ 60% (6/10)
+Workers: 18/25  Done: 12  Failed: 0  Total: 1871    ┌─ Scanner ────────────┐
+                                                    │ Scanning...          │
+✓ 1 -Introduction.mp4         [completed] 1.0 MB   │ Found: 1949          │
+● 1 -Literature Review.mp4    [████░░░░░░] 40%     │ Queue: 1871          │
+● 1 -Research Questions.mp4   [██░░░░░░░░] 20%     │ Skip: 78             │
+○ 1 -Research Methodology.mp4 [waiting...]         └──────────────────────┘
+○ 1 -Data Collection.mp4      [waiting...]
+... and 1853 more files                            ┌─ Progress ──────────┐
+                                                   │ [██████░░░░░░░░] 1% │
+                                                   │ 12/1871 files       │
+                                                   └──────────────────────┘
 
-┌─ Statistics ─────────────────────────┐
-│ Progress: 6/10 │ Active: 3           │
-│ Elapsed: 00:02:15 │ ETA: 00:01:30    │
-│ Output Size: 12.4 MB                 │
-└──────────────────────────────────────┘
+                                                   ┌─ Status ─────────────┐
+                                                   │ Processing           │
+                                                   │ Active: 25           │
+                                                   │ Done: 12  Fail: 0    │
+                                                   └──────────────────────┘
 
-● video1.mp4 [████████░░] 80%
-● video2.mp4 [██░░░░░░░░] 20%
-○ video3.mp4 [waiting...]
-✓ video4.mp4 [completed] 1.2MB
+Press Ctrl+C to gracefully stop (let active jobs finish)
 ```
 
 ## Development
@@ -108,9 +117,10 @@ bun run build
 
 ```
 src/
-├── core/           # Business logic (scanner, converter, queue)
+├── core/           # Business logic (scanner with async generator, converter, queue)
 ├── runtime/        # Entry point (cli-setup.ts)
 └── cli/tui/        # Terminal UI (SolidJS components, context, routes)
+    └── component/  # UI panels: scan, progress, stats, io, performance
 ```
 
 ## Tech Stack
@@ -118,7 +128,8 @@ src/
 - **Runtime**: Bun / Node.js
 - **TUI**: OpenTUI + SolidJS
 - **CLI**: Commander.js
-- **Theme**: Violet (#A855F7)
+- **Theme**: Violet (#A855F7) with pink, cyan, teal, orange accent panels
+- **Architecture**: Producer-consumer streaming pipeline
 
 ## License
 

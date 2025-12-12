@@ -90,7 +90,15 @@ export function ProcessingRoute() {
           {/* LEFT COLUMN: File list */}
           <box flexDirection="column" flexGrow={1} paddingX={1}>
             <box paddingY={1}>
-              <FileList jobs={state.jobs} visibleCount={18} scrollOffset={scrollOffset()} />
+              <FileList
+                jobs={state.jobs}
+                visibleCount={18}
+                scrollOffset={scrollOffset()}
+                activeWorkers={state.options.concurrency}
+                completedCount={state.completedCount}
+                failedCount={state.failedCount}
+                totalCount={state.scanStats?.toProcess ?? state.jobs.length}
+              />
             </box>
 
             {/* Completion message */}
@@ -120,7 +128,7 @@ export function ProcessingRoute() {
           </box>
 
           {/* RIGHT COLUMN: Info panels */}
-          <box flexDirection="column" width={24} paddingRight={1}>
+          <box flexDirection="column" width={26}>
             {/* Scanner Panel (pink) - shows scanning progress */}
             <ScanPanel
               isScanning={state.isScanning}
@@ -180,6 +188,15 @@ export function ProcessingRoute() {
       {/* Footer spacer */}
       <box flexGrow={1} />
 
+      {/* Shutdown notification banner */}
+      <Show when={state.isShuttingDown && state.ctrlCCount >= 1}>
+        <box paddingX={2} paddingY={1}>
+          <text style={{ fg: theme.warning, bold: true }}>
+            ⚠ SHUTTING DOWN - Waiting for {state.activeCount} active worker(s) to finish...
+          </text>
+        </box>
+      </Show>
+
       {/* Footer with keyboard hints */}
       <box paddingX={2} paddingY={1}>
         <Show
@@ -188,7 +205,7 @@ export function ProcessingRoute() {
             <text style={{ fg: theme.textMuted }}>Press Ctrl+C to exit</text>
           }
         >
-          <text style={{ fg: theme.textMuted }}>
+          <text style={{ fg: state.ctrlCCount > 0 ? theme.warning : theme.textMuted }}>
             {state.ctrlCCount === 0
               ? 'Press Ctrl+C to gracefully stop (let active jobs finish)'
               : 'Press Ctrl+C again to force stop immediately'}

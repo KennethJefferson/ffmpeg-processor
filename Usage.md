@@ -217,8 +217,8 @@ C:\Videos\
 --concurrency <number>
 ```
 
-**Default**: `10` (maximum)
-**Range**: `1` to `10`
+**Default**: `10`
+**Range**: `1` to `25`
 
 #### Examples
 
@@ -226,7 +226,7 @@ C:\Videos\
 ```bash
 bun start -- -i "C:\Videos"
 ```
-Converts up to 10 videos at once for maximum speed.
+Converts up to 10 videos at once - a good balance for most systems.
 
 **Example 2: Single file at a time**
 ```bash
@@ -246,11 +246,17 @@ bun start -- -i "C:\Videos" --concurrency 3
 ```
 Process 3 videos simultaneously.
 
-**Example 5: Values above 10 are capped**
+**Example 5: Maximum throughput**
+```bash
+bun start -- -i "C:\Videos" -c 25
+```
+Maximum parallel conversions for fastest processing on powerful systems.
+
+**Example 6: Values above 25 are capped**
 ```bash
 bun start -- -i "C:\Videos" -c 50
 ```
-This will be automatically reduced to 10 (the maximum).
+This will be automatically reduced to 25 (the maximum).
 
 #### Performance Guidelines
 
@@ -258,14 +264,14 @@ This will be automatically reduced to 10 (the maximum).
 |-------------|----------|-----------|--------|
 | 1 | Old/slow computers, background tasks | Low | Low |
 | 2-3 | Laptops, working while converting | Medium | Medium |
-| 5 | Desktop computers, balanced approach | Medium-High | Medium |
-| 10 | Fast computers, fastest conversion | High | High |
+| 5-10 | Desktop computers, balanced approach | Medium-High | Medium |
+| 15-25 | Fast multi-core systems, dedicated conversion | High | High |
 
 #### Choosing the Right Value
 
 - **Slow computer or laptop**: Use `-c 2` or `-c 3`
 - **Want to use computer while converting**: Use `-c 3` or `-c 5`
-- **Dedicated conversion (not using PC)**: Use default `-c 10`
+- **Dedicated conversion (not using PC)**: Use `-c 10` to `-c 25`
 - **System becomes unresponsive**: Lower the value
 
 ---
@@ -441,7 +447,7 @@ bun start -- -i "C:\Videos" -r -d -v
 
 **Maximum throughput (dedicated conversion):**
 ```bash
-bun start -- -i "Z:\VideoArchive" -r -c 10
+bun start -- -i "Z:\VideoArchive" -r -c 25
 ```
 
 **Gentle background processing:**
@@ -526,6 +532,7 @@ During conversion, you can control the process:
 ### Graceful Shutdown (Ctrl+C once)
 
 - Stops adding new jobs to the queue
+- Displays a prominent warning banner showing how many workers are finishing
 - Lets currently running FFmpeg processes finish
 - Exits cleanly after active jobs complete
 
@@ -542,13 +549,15 @@ During conversion, you can control the process:
 ### Visual Feedback
 
 ```
-Press Ctrl+C to gracefully stop...
+[During normal processing]
+Press Ctrl+C to gracefully stop (let active jobs finish)
 
-[After first Ctrl+C]
-Shutting down gracefully... Finishing 3 active jobs...
+[After first Ctrl+C - Warning banner appears]
+⚠ SHUTTING DOWN - Waiting for 18 active worker(s) to finish...
+Press Ctrl+C again to force stop immediately
 
 [After second Ctrl+C]
-Immediate shutdown requested. Killing all processes...
+Immediate shutdown - All processes killed
 ```
 
 ---
@@ -678,13 +687,23 @@ REQUIRED:
 
 OPTIONAL:
   -r, --recursive         Scan subdirectories (default: false)
-  -c, --concurrency <n>   Parallel conversions 1-10 (default: 10)
+  -c, --concurrency <n>   Parallel conversions 1-25 (default: 10)
   -d, --dry-run           Preview without converting (default: false)
   -v, --verbose           Show FFmpeg output (default: false)
 
 KEYBOARD:
-  Ctrl+C (once)           Graceful shutdown (finish active jobs)
+  Ctrl+C (once)           Graceful shutdown (finish active jobs, shows warning)
   Ctrl+C (twice)          Immediate shutdown (kill all)
+
+UI LAYOUT:
+  Left column:  File list with Workers/Done/Failed/Total header
+  Right column: Scanner (pink), Progress (violet), Status (cyan),
+                I/O (teal), Performance (orange) panels
+
+STREAMING MODE:
+  - Scanning and processing run concurrently (producer-consumer pipeline)
+  - Processing starts immediately as files are discovered (hot start)
+  - No waiting for full directory scan to complete
 
 FORMATS:
   Input:  mp4, avi, mkv, wmv, mov, webm, flv

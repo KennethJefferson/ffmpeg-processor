@@ -22,17 +22,17 @@ export function ProgressPanel(props: ProgressPanelProps) {
 
   return (
     <box flexDirection="column">
-      <text style={{ fg: borderColor() }}>┌─ Progress ────────┐</text>
+      <text style={{ fg: borderColor() }}>┌─ Progress ──────────┐</text>
       <box flexDirection="row">
         <text style={{ fg: borderColor() }}>│ </text>
-        <ProgressBar current={props.current} total={props.total} width={12} />
+        <ProgressBar current={props.current} total={props.total} width={14} />
         <text style={{ fg: theme.text }}> {percent()}%</text>
       </box>
       <box flexDirection="row">
         <text style={{ fg: borderColor() }}>│ </text>
         <text style={{ fg: theme.textMuted }}>{props.current}/{props.total} files</text>
       </box>
-      <text style={{ fg: borderColor() }}>└────────────────────┘</text>
+      <text style={{ fg: borderColor() }}>└──────────────────────┘</text>
     </box>
   );
 }

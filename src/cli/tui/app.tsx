@@ -1,5 +1,5 @@
 /** @jsxImportSource @opentui/solid */
-import { render } from '@opentui/solid';
+import { render, type KeyEvent } from '@opentui/solid';
 import { onMount, onCleanup } from 'solid-js';
 import { ThemeProvider } from './context/theme.js';
 import { ProcessorStateProvider, useProcessorState } from './context/processor-state.js';
@@ -97,6 +97,18 @@ export async function startTUI(options: CLIOptions): Promise<void> {
     process.off('SIGINT', handleSigint);
   };
 
+  // Keyboard handler for Ctrl+C (since SIGINT may not work with Kitty keyboard protocol)
+  const handleKeyDown = (event: KeyEvent) => {
+    if (event.ctrl && event.name === 'c') {
+      if (globalShutdownHandler) {
+        globalShutdownHandler();
+      } else {
+        cleanup();
+        process.exit(0);
+      }
+    }
+  };
+
   // Render the app - disable exitOnCtrlC so we can handle shutdown gracefully
   const instance = render(
     () => (
@@ -105,6 +117,7 @@ export async function startTUI(options: CLIOptions): Promise<void> {
         width="100%"
         height="100%"
         overflow="hidden"
+        onKeyDown={handleKeyDown}
       >
         {/* Main app */}
         <App options={options} mode={mode} />

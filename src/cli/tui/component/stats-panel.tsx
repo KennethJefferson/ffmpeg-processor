@@ -38,7 +38,7 @@ export function StatsPanel(props: StatsPanelProps) {
 
   return (
     <box flexDirection="column">
-      <text style={{ fg: theme.cyan }}>┌─ Status ───────────┐</text>
+      <text style={{ fg: theme.cyan }}>┌─ Status ─────────────┐</text>
       <box flexDirection="row">
         <text style={{ fg: theme.cyan }}>│ </text>
         <text style={{ fg: statusColor() }}>{statusText()}</text>
@@ -62,7 +62,7 @@ export function StatsPanel(props: StatsPanelProps) {
           <text style={{ fg: theme.warning }}>{props.skipped}</text>
         </box>
       </Show>
-      <text style={{ fg: theme.cyan }}>└────────────────────┘</text>
+      <text style={{ fg: theme.cyan }}>└──────────────────────┘</text>
     </box>
   );
 }

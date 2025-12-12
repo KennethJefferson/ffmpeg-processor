@@ -13,6 +13,14 @@ export interface FileListProps {
   visibleCount?: number;
   /** Index of the first visible item (for scrolling) */
   scrollOffset?: number;
+  /** Number of active workers (concurrency setting) */
+  activeWorkers?: number;
+  /** Number of completed jobs */
+  completedCount?: number;
+  /** Number of failed jobs */
+  failedCount?: number;
+  /** Total jobs count (including pending from scanner) */
+  totalCount?: number;
 }
 
 /**
@@ -101,8 +109,29 @@ export function FileList(props: FileListProps) {
   const hasMore = () => props.jobs.length > scrollOffset() + visibleCount();
   const remainingCount = () => props.jobs.length - scrollOffset() - visibleCount();
 
+  // Calculate running count from jobs
+  const runningCount = createMemo(() => {
+    return props.jobs.filter(j => j.status === 'running').length;
+  });
+
   return (
     <box flexDirection="column" paddingX={2}>
+      {/* Header row with summary stats */}
+      <box flexDirection="row" gap={2} paddingBottom={1}>
+        <text style={{ fg: theme.primary }}>
+          Workers: {runningCount()}/{props.activeWorkers ?? runningCount()}
+        </text>
+        <text style={{ fg: theme.success }}>
+          Done: {props.completedCount ?? 0}
+        </text>
+        <text style={{ fg: props.failedCount && props.failedCount > 0 ? theme.error : theme.textMuted }}>
+          Failed: {props.failedCount ?? 0}
+        </text>
+        <text style={{ fg: theme.textMuted }}>
+          Total: {props.totalCount ?? props.jobs.length}
+        </text>
+      </box>
+
       <Show
         when={props.jobs.length > 0}
         fallback={<text style={{ fg: theme.textMuted }}>No files to process</text>}

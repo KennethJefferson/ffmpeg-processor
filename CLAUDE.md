@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What is FFmpeg Processor?
 
-A CLI-based batch video-to-MP3 converter with a violet-themed TUI interface. Converts video files to transcription-optimized MP3s with parallel processing (up to 10 concurrent FFmpeg jobs).
+A CLI-based batch video-to-MP3 converter with a violet-themed TUI interface. Converts video files to transcription-optimized MP3s with parallel processing (up to 25 concurrent FFmpeg jobs). Features a streaming producer-consumer pipeline where scanning and processing run concurrently.
 
 ## Development Commands
 
@@ -31,7 +31,7 @@ fmp -i <path> [options]
 
 # Optional
 -r, --recursive          Search subdirectories
--c, --concurrency <n>    Max parallel conversions (1-10, default: 10)
+-c, --concurrency <n>    Max parallel conversions (1-25, default: 10)
 -d, --dry-run            Preview files without converting
 -v, --verbose            Show FFmpeg output
 ```
@@ -42,43 +42,51 @@ fmp -i <path> [options]
 src/
 ├── core/                    # Business logic
 │   ├── types.ts             # Type definitions (CLIOptions, VideoFile, ConversionJob)
-│   ├── scanner.ts           # Directory scanning, companion file detection
+│   ├── scanner.ts           # Directory scanning (batch + streaming async generator)
 │   ├── converter.ts         # FFmpeg spawning, progress parsing
-│   ├── queue.ts             # Parallel job queue with concurrency control
+│   ├── queue.ts             # Parallel job queue with streaming mode support
 │   └── index.ts             # Core exports
 ├── runtime/
 │   └── cli-setup.ts         # Entry point: Commander.js CLI parsing, TUI launch
 └── cli/
     ├── index.ts             # CLI exports
     └── tui/                  # Terminal User Interface
-        ├── app.tsx           # Root app with Ctrl+C shutdown handler
+        ├── app.tsx           # Root app with keyboard Ctrl+C handler
         ├── launcher.ts       # SolidJS transform preload
         ├── component/        # UI components
-        │   ├── logo.tsx      # ASCII art header
-        │   ├── progress-bar.tsx
-        │   ├── file-list.tsx
-        │   └── stats-panel.tsx
+        │   ├── logo.tsx          # ASCII art header
+        │   ├── progress-bar.tsx  # Progress bar widget
+        │   ├── file-list.tsx     # Scrolling file list with header stats
+        │   ├── scan-panel.tsx    # Scanner status (pink)
+        │   ├── progress-panel.tsx # Overall progress (violet)
+        │   ├── stats-panel.tsx   # Active/done/failed counts (cyan)
+        │   ├── io-panel.tsx      # Input/output info (teal)
+        │   └── performance-panel.tsx # Speed/ETA metrics (orange)
         ├── context/          # State management
-        │   ├── theme/        # Violet theme (#A855F7)
-        │   ├── processor-state.tsx
+        │   ├── theme/        # Violet theme (#A855F7) + accent colors
+        │   ├── processor-state.tsx  # Main state with streaming support
         │   └── helper.tsx
         └── routes/
-            └── processing.tsx # Main processing view
+            └── processing.tsx # Main two-column processing view
 ```
 
 ## Key Behaviors
+
+**Streaming Pipeline**: Scanner (producer) yields files as found via async generator. Queue (consumer) starts processing immediately while scanning continues. This enables "hot start" - no waiting for full scan before processing begins.
 
 **Skip Logic**: Videos skipped if `.mp3` OR `.srt` with same basename exists.
 
 **FFmpeg Command**: `ffmpeg -i input -vn -ar 16000 -ac 1 -b:a 32k -acodec libmp3lame -y output.mp3`
 
 **Shutdown**:
-- Ctrl+C once → Graceful: finish active jobs, skip pending
+- Ctrl+C once → Graceful: finish active jobs, skip pending (shows warning banner)
 - Ctrl+C twice → Immediate: kill all FFmpeg processes
+
+**UI Layout**: Two-column design with file list on left (with header showing Workers/Done/Failed/Total) and colored info panels stacked on right (Scanner, Progress, Status, I/O, Performance).
 
 ## Tech Stack
 
 - Bun 1.3+ / Node.js 20.10+
 - OpenTUI + SolidJS (TUI)
 - Commander.js (CLI)
-- Violet theme (#A855F7)
+- Violet theme (#A855F7) with pink, cyan, teal, orange accents

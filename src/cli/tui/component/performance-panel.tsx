@@ -36,7 +36,7 @@ export function PerformancePanel(props: PerformancePanelProps) {
 
   return (
     <box flexDirection="column">
-      <text style={{ fg: theme.orange }}>┌─ Performance ──────┐</text>
+      <text style={{ fg: theme.orange }}>┌─ Performance ────────┐</text>
       <box flexDirection="row">
         <text style={{ fg: theme.orange }}>│ </text>
         <text style={{ fg: theme.textMuted }}>Speed: </text>
@@ -61,7 +61,7 @@ export function PerformancePanel(props: PerformancePanelProps) {
           {props.estimatedRemaining ? formatTime(props.estimatedRemaining) : '---'}
         </text>
       </box>
-      <text style={{ fg: theme.orange }}>└────────────────────┘</text>
+      <text style={{ fg: theme.orange }}>└──────────────────────┘</text>
     </box>
   );
 }

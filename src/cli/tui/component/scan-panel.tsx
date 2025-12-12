@@ -25,7 +25,7 @@ export function ScanPanel(props: ScanPanelProps) {
 
   return (
     <box flexDirection="column">
-      <text style={{ fg: borderColor() }}>┌─ Scanner ──────────┐</text>
+      <text style={{ fg: borderColor() }}>┌─ Scanner ────────────┐</text>
       <box flexDirection="row">
         <text style={{ fg: borderColor() }}>│ </text>
         <text style={{ fg: borderColor() }}>{statusText()}</text>
@@ -53,7 +53,7 @@ export function ScanPanel(props: ScanPanelProps) {
           {(props.stats?.skippedMP3 ?? 0) + (props.stats?.skippedSRT ?? 0)}
         </text>
       </box>
-      <text style={{ fg: borderColor() }}>└────────────────────┘</text>
+      <text style={{ fg: borderColor() }}>└──────────────────────┘</text>
     </box>
   );
 }

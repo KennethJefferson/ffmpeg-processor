@@ -26,7 +26,7 @@ export function IOPanel(props: IOPanelProps) {
 
   return (
     <box flexDirection="column">
-      <text style={{ fg: theme.teal }}>┌─ I/O ──────────────┐</text>
+      <text style={{ fg: theme.teal }}>┌─ I/O ────────────────┐</text>
       <box flexDirection="row">
         <text style={{ fg: theme.teal }}>│ </text>
         <text style={{ fg: theme.textMuted }}>In: </text>
@@ -47,7 +47,7 @@ export function IOPanel(props: IOPanelProps) {
         <text style={{ fg: theme.textMuted }}>Out: </text>
         <text style={{ fg: theme.success }}>{formatFileSize(props.totalOutputSize)}</text>
       </box>
-      <text style={{ fg: theme.teal }}>└────────────────────┘</text>
+      <text style={{ fg: theme.teal }}>└──────────────────────┘</text>
     </box>
   );
 }
