@@ -232,11 +232,13 @@ export class ConversionQueue {
     ).then((result) => {
       this.activeJobs.delete(job.id);
       this.completedResults.push(result);
+
+      // Start next job IMMEDIATELY before UI callbacks (minimize latency)
+      this.processNext();
+
+      // Then notify UI
       this.callbacks.onJobComplete?.(result);
       this.notifyStateChange();
-
-      // Process next job
-      this.processNext();
 
       return result;
     });

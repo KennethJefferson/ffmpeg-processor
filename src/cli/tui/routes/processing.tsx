@@ -4,15 +4,24 @@ import { useTheme } from '../context/theme.js';
 import { useProcessorState } from '../context/processor-state.js';
 import { Logo } from '../component/logo.js';
 import { FileList } from '../component/file-list.js';
-import { ProgressPanel } from '../component/progress-panel.js';
-import { StatsPanel } from '../component/stats-panel.js';
-import { IOPanel } from '../component/io-panel.js';
-import { PerformancePanel } from '../component/performance-panel.js';
-import { ScanPanel } from '../component/scan-panel.js';
 import { formatFileSize } from '../../../core/scanner.js';
 
 /**
- * Main processing view - Two column layout
+ * Format milliseconds to MM:SS or HH:MM:SS
+ */
+function formatTime(ms: number): string {
+  const seconds = Math.floor(ms / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+
+  if (hours > 0) {
+    return `${hours}:${String(minutes % 60).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
+  }
+  return `${minutes}:${String(seconds % 60).padStart(2, '0')}`;
+}
+
+/**
+ * Main processing view - Single column layout
  * Supports streaming mode (scan + process in parallel)
  */
 export function ProcessingRoute() {
@@ -28,19 +37,6 @@ export function ProcessingRoute() {
       await state.startProcessing();
     }
   });
-
-  // Calculate scroll offset to keep active jobs visible
-  const scrollOffset = () => {
-    const jobs = state.jobs;
-    if (jobs.length === 0) return 0;
-
-    // Find first running job
-    const firstRunningIndex = jobs.findIndex((j) => j.status === 'running');
-    if (firstRunningIndex === -1) return 0;
-
-    // Keep a few completed jobs visible above
-    return Math.max(0, firstRunningIndex - 2);
-  };
 
   const isComplete = () => state.status === 'completed';
   const skippedCount = () => (state.scanStats?.skippedMP3 ?? 0) + (state.scanStats?.skippedSRT ?? 0);
@@ -84,104 +80,111 @@ export function ProcessingRoute() {
         </box>
       </Show>
 
-      {/* Main processing view - Two Column Layout */}
+      {/* Main processing view - Single Column with Stats Above */}
       <Show when={state.status === 'processing' || state.status === 'completed' || state.status === 'cancelled'}>
-        <box flexDirection="row" flexGrow={1}>
-          {/* LEFT COLUMN: File list */}
-          <box flexDirection="column" flexGrow={1} paddingX={1}>
-            <box paddingY={1}>
-              <FileList
-                jobs={state.jobs}
-                visibleCount={18}
-                scrollOffset={scrollOffset()}
-                activeWorkers={state.options.concurrency}
-                completedCount={state.completedCount}
-                failedCount={state.failedCount}
-                totalCount={state.scanStats?.toProcess ?? state.jobs.length}
-              />
+        <box flexDirection="column" flexGrow={1} paddingX={2}>
+          {/* Stats Row - All panels consolidated horizontally */}
+          <box flexDirection="row" gap={2} paddingY={1}>
+            {/* Scanner info */}
+            <box flexDirection="column">
+              <text style={{ fg: state.isScanning ? theme.pink : theme.success }}>
+                {state.isScanning ? '◉ Scanning' : '✓ Scan Done'}
+              </text>
+              <text style={{ fg: theme.textMuted }}>
+                Found: <text style={{ fg: theme.text }}>{state.scanStats?.totalFound ?? 0}</text>
+                {' '}Skip: <text style={{ fg: theme.warning }}>{skippedCount()}</text>
+              </text>
             </box>
 
-            {/* Completion message */}
-            <Show when={state.status === 'completed' && !state.options.dryRun && state.completedCount > 0}>
-              <box paddingX={1} paddingY={1}>
-                <text style={{ fg: theme.success }}>
-                  Done! Converted {state.completedCount} files ({formatFileSize(state.totalOutputSize)})
+            {/* Divider */}
+            <text style={{ fg: theme.textMuted }}>│</text>
+
+            {/* Progress info */}
+            <box flexDirection="column">
+              <text style={{ fg: theme.violet }}>
+                Progress: {state.completedCount}/{state.jobs.length} ({state.jobs.length > 0 ? Math.round((state.completedCount / state.jobs.length) * 100) : 0}%)
+              </text>
+              <box flexDirection="row" gap={1}>
+                <text style={{ fg: theme.textMuted }}>
+                  Active: <text style={{ fg: theme.primary }}>{state.activeCount}</text>
+                </text>
+                <text style={{ fg: theme.textMuted }}>
+                  Failed: <text style={{ fg: state.failedCount > 0 ? theme.error : theme.textMuted }}>{state.failedCount}</text>
                 </text>
               </box>
-            </Show>
+            </box>
 
-            {/* No files found message */}
-            <Show when={state.status === 'completed' && state.completedCount === 0 && state.error}>
-              <box paddingX={1} paddingY={1}>
-                <text style={{ fg: theme.warning }}>{state.error}</text>
-              </box>
-            </Show>
+            {/* Divider */}
+            <text style={{ fg: theme.textMuted }}>│</text>
 
-            {/* Cancellation message */}
-            <Show when={state.status === 'cancelled'}>
-              <box paddingX={1} paddingY={1}>
-                <text style={{ fg: theme.warning }}>
-                  Cancelled. Completed {state.completedCount} of {state.jobs.length} files.
-                </text>
-              </box>
-            </Show>
+            {/* I/O info */}
+            <box flexDirection="column">
+              <text style={{ fg: theme.teal }}>
+                Workers: {state.options.concurrency} {state.options.recursive ? '(recursive)' : ''}
+              </text>
+              <text style={{ fg: theme.textMuted }}>
+                Output: <text style={{ fg: theme.success }}>{formatFileSize(state.totalOutputSize)}</text>
+              </text>
+            </box>
+
+            {/* Divider */}
+            <text style={{ fg: theme.textMuted }}>│</text>
+
+            {/* Performance info */}
+            <box flexDirection="column">
+              <text style={{ fg: theme.orange }}>
+                Time: {formatTime(state.elapsedTime)}
+                {state.estimatedRemaining ? ` ETA: ${formatTime(state.estimatedRemaining)}` : ''}
+              </text>
+              <text style={{ fg: theme.textMuted }}>
+                Speed: <text style={{ fg: theme.orange }}>
+                  {state.elapsedTime > 1000 && state.completedCount > 0
+                    ? (state.completedCount / (state.elapsedTime / 60000)).toFixed(1)
+                    : '---'}
+                </text>/min
+              </text>
+            </box>
           </box>
 
-          {/* RIGHT COLUMN: Info panels */}
-          <box flexDirection="column" width={26}>
-            {/* Scanner Panel (pink) - shows scanning progress */}
-            <ScanPanel
-              isScanning={state.isScanning}
-              stats={state.scanStats}
-              currentDir={state.currentScanDir}
-            />
+          {/* Separator line */}
+          <text style={{ fg: theme.textMuted }}>{'─'.repeat(90)}</text>
 
-            <box height={1} />
-
-            {/* Progress Panel (violet) */}
-            <ProgressPanel
-              current={state.completedCount}
-              total={state.jobs.length}
-              isComplete={isComplete()}
-              isShuttingDown={state.isShuttingDown}
-            />
-
-            <box height={1} />
-
-            {/* Stats Panel (cyan) */}
-            <StatsPanel
-              activeJobs={state.activeCount}
-              completed={state.completedCount}
-              failed={state.failedCount}
-              skipped={skippedCount()}
-              isShuttingDown={state.isShuttingDown}
-              isComplete={isComplete()}
-            />
-
-            <box height={1} />
-
-            {/* I/O Panel (teal) */}
-            <IOPanel
-              inputPath={state.options.input}
-              recursive={state.options.recursive}
-              concurrency={state.options.concurrency}
-              totalOutputSize={state.totalOutputSize}
-              totalFound={state.scanStats?.totalFound}
-              skippedCount={skippedCount()}
-            />
-
-            <box height={1} />
-
-            {/* Performance Panel (orange) */}
-            <PerformancePanel
-              elapsedTime={state.elapsedTime}
+          {/* File list */}
+          <box paddingY={1}>
+            <FileList
+              jobs={state.jobs}
+              visibleCount={18}
+              activeWorkers={state.options.concurrency}
               completedCount={state.completedCount}
-              estimatedRemaining={state.estimatedRemaining}
+              failedCount={state.failedCount}
+              totalCount={state.scanStats?.toProcess ?? state.jobs.length}
             />
-
-            {/* Push panels to top */}
-            <box flexGrow={1} />
           </box>
+
+          {/* Completion message */}
+          <Show when={state.status === 'completed' && !state.options.dryRun && state.completedCount > 0}>
+            <box paddingY={1}>
+              <text style={{ fg: theme.success }}>
+                Done! Converted {state.completedCount} files ({formatFileSize(state.totalOutputSize)})
+              </text>
+            </box>
+          </Show>
+
+          {/* No files found message */}
+          <Show when={state.status === 'completed' && state.completedCount === 0 && state.error}>
+            <box paddingY={1}>
+              <text style={{ fg: theme.warning }}>{state.error}</text>
+            </box>
+          </Show>
+
+          {/* Cancellation message */}
+          <Show when={state.status === 'cancelled'}>
+            <box paddingY={1}>
+              <text style={{ fg: theme.warning }}>
+                Cancelled. Completed {state.completedCount} of {state.jobs.length} files.
+              </text>
+            </box>
+          </Show>
         </box>
       </Show>
 

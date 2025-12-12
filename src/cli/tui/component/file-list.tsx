@@ -6,13 +6,14 @@ import type { ConversionJob } from '../../../core/types.js';
 import { formatFileSize } from '../../../core/scanner.js';
 import { basename } from 'node:path';
 
+/** How long to keep completed jobs visible at the top (ms) */
+const RECENTLY_COMPLETED_DURATION = 1500;
+
 export interface FileListProps {
   /** List of conversion jobs */
   jobs: ConversionJob[];
   /** Maximum number of visible items */
   visibleCount?: number;
-  /** Index of the first visible item (for scrolling) */
-  scrollOffset?: number;
   /** Number of active workers (concurrency setting) */
   activeWorkers?: number;
   /** Number of completed jobs */
@@ -26,7 +27,7 @@ export interface FileListProps {
 /**
  * Status icon for a job
  */
-function StatusIcon(props: { status: ConversionJob['status'] }) {
+function StatusIcon(props: { status: ConversionJob['status']; isRecent?: boolean }) {
   const { theme } = useTheme();
 
   const icon = () => {
@@ -36,7 +37,8 @@ function StatusIcon(props: { status: ConversionJob['status'] }) {
       case 'running':
         return { char: '●', color: theme.primary };
       case 'completed':
-        return { char: '✓', color: theme.success };
+        // Recently completed jobs get a highlight
+        return { char: '✓', color: props.isRecent ? theme.success : theme.textMuted };
       case 'failed':
         return { char: '✗', color: theme.error };
       case 'cancelled':
@@ -52,7 +54,7 @@ function StatusIcon(props: { status: ConversionJob['status'] }) {
 /**
  * Single file item in the list
  */
-function FileItem(props: { job: ConversionJob }) {
+function FileItem(props: { job: ConversionJob; isRecent?: boolean }) {
   const { theme } = useTheme();
 
   const fileName = () => basename(props.job.inputPath);
@@ -61,10 +63,18 @@ function FileItem(props: { job: ConversionJob }) {
     return name.length > 40 ? name.substring(0, 37) + '...' : name;
   };
 
+  // Dim text for non-recent completed jobs
+  const textColor = () => {
+    if (props.job.status === 'completed' && !props.isRecent) {
+      return theme.textMuted;
+    }
+    return theme.text;
+  };
+
   return (
     <box flexDirection="row" gap={1}>
-      <StatusIcon status={props.job.status} />
-      <text style={{ fg: theme.text, width: 42 }}>{truncatedName()}</text>
+      <StatusIcon status={props.job.status} isRecent={props.isRecent} />
+      <text style={{ fg: textColor(), width: 42 }}>{truncatedName()}</text>
 
       <Show when={props.job.status === 'running'}>
         <MiniProgressBar progress={props.job.progress} width={10} />
@@ -76,7 +86,7 @@ function FileItem(props: { job: ConversionJob }) {
       </Show>
 
       <Show when={props.job.status === 'completed'}>
-        <text style={{ fg: theme.success }}>[completed]</text>
+        <text style={{ fg: props.isRecent ? theme.success : theme.textMuted }}>[completed]</text>
         <Show when={props.job.outputSize}>
           <text style={{ fg: theme.textMuted }}>{formatFileSize(props.job.outputSize!)}</text>
         </Show>
@@ -94,24 +104,98 @@ function FileItem(props: { job: ConversionJob }) {
 }
 
 /**
- * Scrollable file list component
+ * Get sort priority for job status (lower = higher priority = shown first)
+ */
+function getStatusPriority(job: ConversionJob, now: number): number {
+  switch (job.status) {
+    case 'running':
+      return 0; // Running jobs always at top
+    case 'failed':
+      return 1; // Failed jobs next (important to see)
+    case 'completed':
+      // Recently completed jobs stay near top briefly
+      if (job.endTime && now - job.endTime < RECENTLY_COMPLETED_DURATION) {
+        return 2; // Recently completed
+      }
+      return 5; // Old completed jobs at bottom
+    case 'pending':
+      return 3; // Pending jobs in middle
+    case 'cancelled':
+      return 4; // Cancelled jobs
+    default:
+      return 6;
+  }
+}
+
+/**
+ * Check if a job was recently completed
+ */
+function isRecentlyCompleted(job: ConversionJob, now: number): boolean {
+  return (
+    job.status === 'completed' &&
+    job.endTime !== undefined &&
+    now - job.endTime < RECENTLY_COMPLETED_DURATION
+  );
+}
+
+/**
+ * Scrollable file list component with sorted display
+ *
+ * Jobs are displayed in priority order:
+ * 1. Running (actively processing)
+ * 2. Failed (errors to notice)
+ * 3. Recently completed (within 1.5s, shows completion briefly)
+ * 4. Pending (waiting to start)
+ * 5. Cancelled
+ * 6. Completed (older, faded)
  */
 export function FileList(props: FileListProps) {
   const { theme } = useTheme();
 
-  const visibleCount = () => props.visibleCount ?? 10;
-  const scrollOffset = () => props.scrollOffset ?? 0;
+  const visibleCount = () => props.visibleCount ?? 15;
 
-  const visibleJobs = createMemo(() => {
-    return props.jobs.slice(scrollOffset(), scrollOffset() + visibleCount());
+  // Sort jobs by status priority for display
+  const sortedJobs = createMemo(() => {
+    const now = Date.now();
+    return [...props.jobs].sort((a, b) => {
+      const priorityA = getStatusPriority(a, now);
+      const priorityB = getStatusPriority(b, now);
+      if (priorityA !== priorityB) {
+        return priorityA - priorityB;
+      }
+      // Within same priority, sort by start time (newer first for running)
+      if (a.status === 'running' && b.status === 'running') {
+        return (b.startTime ?? 0) - (a.startTime ?? 0);
+      }
+      // For completed, sort by end time (newer first)
+      if (a.status === 'completed' && b.status === 'completed') {
+        return (b.endTime ?? 0) - (a.endTime ?? 0);
+      }
+      return 0;
+    });
   });
 
-  const hasMore = () => props.jobs.length > scrollOffset() + visibleCount();
-  const remainingCount = () => props.jobs.length - scrollOffset() - visibleCount();
+  // Get visible slice of sorted jobs
+  const visibleJobs = createMemo(() => {
+    return sortedJobs().slice(0, visibleCount());
+  });
+
+  const hasMore = () => sortedJobs().length > visibleCount();
+  const remainingCount = () => sortedJobs().length - visibleCount();
 
   // Calculate running count from jobs
   const runningCount = createMemo(() => {
-    return props.jobs.filter(j => j.status === 'running').length;
+    return props.jobs.filter((j) => j.status === 'running').length;
+  });
+
+  // Track which jobs are recently completed for highlighting
+  const recentlyCompletedIds = createMemo(() => {
+    const now = Date.now();
+    return new Set(
+      props.jobs
+        .filter((j) => isRecentlyCompleted(j, now))
+        .map((j) => j.id)
+    );
   });
 
   return (
@@ -121,22 +205,22 @@ export function FileList(props: FileListProps) {
         <text style={{ fg: theme.primary }}>
           Workers: {runningCount()}/{props.activeWorkers ?? runningCount()}
         </text>
-        <text style={{ fg: theme.success }}>
-          Done: {props.completedCount ?? 0}
-        </text>
-        <text style={{ fg: props.failedCount && props.failedCount > 0 ? theme.error : theme.textMuted }}>
+        <text style={{ fg: theme.success }}>Done: {props.completedCount ?? 0}</text>
+        <text
+          style={{ fg: props.failedCount && props.failedCount > 0 ? theme.error : theme.textMuted }}
+        >
           Failed: {props.failedCount ?? 0}
         </text>
-        <text style={{ fg: theme.textMuted }}>
-          Total: {props.totalCount ?? props.jobs.length}
-        </text>
+        <text style={{ fg: theme.textMuted }}>Total: {props.totalCount ?? props.jobs.length}</text>
       </box>
 
       <Show
         when={props.jobs.length > 0}
         fallback={<text style={{ fg: theme.textMuted }}>No files to process</text>}
       >
-        <For each={visibleJobs()}>{(job) => <FileItem job={job} />}</For>
+        <For each={visibleJobs()}>
+          {(job) => <FileItem job={job} isRecent={recentlyCompletedIds().has(job.id)} />}
+        </For>
 
         <Show when={hasMore()}>
           <text style={{ fg: theme.textMuted }}>... and {remainingCount()} more files</text>
