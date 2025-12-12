@@ -305,15 +305,21 @@ export const { use: useProcessorState, provider: ProcessorStateProvider } = crea
     const requestShutdown = () => {
       const count = ctrlCCount() + 1;
       setCtrlCCount(count);
+      setIsShuttingDown(true);
 
       if (!queue) {
-        process.exit(0);
+        // No queue yet - exit after brief delay so UI can show notification
+        if (count >= 2) {
+          process.exit(0);
+        } else {
+          // First Ctrl+C without queue: schedule exit after showing banner
+          setTimeout(() => process.exit(0), 500);
+        }
         return;
       }
 
       if (count === 1) {
         // First Ctrl+C: graceful shutdown
-        setIsShuttingDown(true);
         queue.requestGracefulShutdown();
       } else {
         // Second Ctrl+C: immediate shutdown

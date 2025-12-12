@@ -26,8 +26,8 @@ export function ProgressBar(props: ProgressBarProps) {
   const percentage = () => (props.total > 0 ? Math.round((props.current / props.total) * 100) : 0);
   const filledWidth = () => (props.total > 0 ? Math.floor((props.current / props.total) * width()) : 0);
 
-  const filledChar = '█';
-  const emptyChar = '░';
+  const filledChar = '\u2588'; // █
+  const emptyChar = '\u2591'; // ░
 
   const barColor = () => {
     switch (props.variant) {
@@ -42,22 +42,26 @@ export function ProgressBar(props: ProgressBarProps) {
     }
   };
 
+  // Build the bar as a single string for proper alignment
+  const barString = () => {
+    const filled = filledChar.repeat(filledWidth());
+    const empty = emptyChar.repeat(width() - filledWidth());
+    return filled + empty;
+  };
+
   return (
-    <box flexDirection="row" gap={1}>
-      <text style={{ fg: theme.borderSubtle }}>│</text>
-      <text style={{ fg: barColor() }}>{filledChar.repeat(filledWidth())}</text>
-      <text style={{ fg: theme.borderSubtle }}>{emptyChar.repeat(width() - filledWidth())}</text>
-      <text style={{ fg: theme.borderSubtle }}>│</text>
+    <box flexDirection="row">
+      <text style={{ fg: theme.borderSubtle }}>{'│'}</text>
+      <text style={{ fg: barColor() }}>{barString()}</text>
+      <text style={{ fg: theme.borderSubtle }}>{'│'}</text>
       <Show when={props.showPercentage !== false}>
-        <text style={{ fg: theme.text }}>{percentage()}%</text>
+        <text style={{ fg: theme.text }}> {percentage()}%</text>
       </Show>
       <Show when={props.showCount}>
-        <text style={{ fg: theme.textMuted }}>
-          ({props.current}/{props.total})
-        </text>
+        <text style={{ fg: theme.textMuted }}> ({props.current}/{props.total})</text>
       </Show>
       <Show when={props.label}>
-        <text style={{ fg: theme.textMuted }}>{props.label}</text>
+        <text style={{ fg: theme.textMuted }}> {props.label}</text>
       </Show>
     </box>
   );
@@ -79,15 +83,15 @@ export function MiniProgressBar(props: MiniProgressBarProps) {
   const width = () => props.width ?? 10;
   const filledWidth = () => Math.floor((props.progress / 100) * width());
 
-  const filledChar = '█';
-  const emptyChar = '░';
+  const filledChar = '\u2588'; // █
+  const emptyChar = '\u2591'; // ░
 
-  return (
-    <box flexDirection="row">
-      <text style={{ fg: theme.borderSubtle }}>[</text>
-      <text style={{ fg: theme.primary }}>{filledChar.repeat(filledWidth())}</text>
-      <text style={{ fg: theme.borderSubtle }}>{emptyChar.repeat(width() - filledWidth())}</text>
-      <text style={{ fg: theme.borderSubtle }}>]</text>
-    </box>
-  );
+  // Build the entire bar as a single string
+  const barString = () => {
+    const filled = filledChar.repeat(filledWidth());
+    const empty = emptyChar.repeat(width() - filledWidth());
+    return '[' + filled + empty + ']';
+  };
+
+  return <text style={{ fg: theme.primary }}>{barString()}</text>;
 }

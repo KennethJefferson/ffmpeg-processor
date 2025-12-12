@@ -68,8 +68,34 @@ export function ProcessingRoute() {
         </box>
       </Show>
 
+      {/* SHUTDOWN NOTIFICATION - Yellow banner (shows regardless of status) */}
+      <Show when={state.ctrlCCount >= 1}>
+        <box paddingX={2} paddingY={1} flexDirection="column">
+          <text style={{ fg: theme.warning, bold: true }}>
+            {'\u26A0'} GRACEFUL SHUTDOWN IN PROGRESS
+          </text>
+          <Show when={state.activeCount > 0}>
+            <text style={{ fg: theme.warning }}>
+              Waiting for {state.activeCount} active worker(s) to finish...
+            </text>
+          </Show>
+          <text style={{ fg: theme.warning, bold: true }}>
+            Press Ctrl+C again to immediately exit application
+          </text>
+        </box>
+      </Show>
+
       {/* Main processing view */}
       <Show when={state.status === 'processing' || state.status === 'completed' || state.status === 'cancelled'}>
+        {/* Keyboard hint - only show when NOT shutting down */}
+        <Show when={state.ctrlCCount === 0}>
+          <box paddingX={2}>
+            <text style={{ fg: theme.textMuted }}>
+              Press Ctrl+C to gracefully stop (let active jobs finish)
+            </text>
+          </box>
+        </Show>
+
         {/* Overall progress */}
         <box paddingX={2} paddingY={1}>
           <ProgressBar
@@ -131,30 +157,12 @@ export function ProcessingRoute() {
       {/* Footer spacer */}
       <box flexGrow={1} />
 
-      {/* Shutdown notification banner */}
-      <Show when={state.isShuttingDown && state.ctrlCCount >= 1}>
+      {/* Footer - only for non-processing states */}
+      <Show when={state.status !== 'processing'}>
         <box paddingX={2} paddingY={1}>
-          <text style={{ fg: theme.warning, bold: true }}>
-            {'\u26A0'} SHUTTING DOWN - Waiting for {state.activeCount} active worker(s) to finish...
-          </text>
+          <text style={{ fg: theme.textMuted }}>Press Ctrl+C to exit</text>
         </box>
       </Show>
-
-      {/* Footer with keyboard hints */}
-      <box paddingX={2} paddingY={1}>
-        <Show
-          when={state.status === 'processing'}
-          fallback={
-            <text style={{ fg: theme.textMuted }}>Press Ctrl+C to exit</text>
-          }
-        >
-          <text style={{ fg: state.ctrlCCount > 0 ? theme.warning : theme.textMuted }}>
-            {state.ctrlCCount === 0
-              ? 'Press Ctrl+C to gracefully stop (let active jobs finish)'
-              : 'Press Ctrl+C again to force stop immediately'}
-          </text>
-        </Show>
-      </box>
     </box>
   );
 }
