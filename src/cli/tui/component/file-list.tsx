@@ -14,14 +14,6 @@ export interface FileListProps {
   jobs: ConversionJob[];
   /** Maximum number of visible items */
   visibleCount?: number;
-  /** Number of active workers (concurrency setting) */
-  activeWorkers?: number;
-  /** Number of completed jobs */
-  completedCount?: number;
-  /** Number of failed jobs */
-  failedCount?: number;
-  /** Total jobs count (including pending from scanner) */
-  totalCount?: number;
 }
 
 /**
@@ -37,7 +29,6 @@ function StatusIcon(props: { status: ConversionJob['status']; isRecent?: boolean
       case 'running':
         return { char: '●', color: theme.primary };
       case 'completed':
-        // Recently completed jobs get a highlight
         return { char: '✓', color: props.isRecent ? theme.success : theme.textMuted };
       case 'failed':
         return { char: '✗', color: theme.error };
@@ -60,7 +51,7 @@ function FileItem(props: { job: ConversionJob; isRecent?: boolean }) {
   const fileName = () => basename(props.job.inputPath);
   const truncatedName = () => {
     const name = fileName();
-    return name.length > 40 ? name.substring(0, 37) + '...' : name;
+    return name.length > 50 ? name.substring(0, 47) + '...' : name;
   };
 
   // Dim text for non-recent completed jobs
@@ -74,7 +65,7 @@ function FileItem(props: { job: ConversionJob; isRecent?: boolean }) {
   return (
     <box flexDirection="row" gap={1}>
       <StatusIcon status={props.job.status} isRecent={props.isRecent} />
-      <text style={{ fg: textColor(), width: 42 }}>{truncatedName()}</text>
+      <text style={{ fg: textColor(), width: 52 }}>{truncatedName()}</text>
 
       <Show when={props.job.status === 'running'}>
         <MiniProgressBar progress={props.job.progress} width={10} />
@@ -88,7 +79,7 @@ function FileItem(props: { job: ConversionJob; isRecent?: boolean }) {
       <Show when={props.job.status === 'completed'}>
         <text style={{ fg: props.isRecent ? theme.success : theme.textMuted }}>[completed]</text>
         <Show when={props.job.outputSize}>
-          <text style={{ fg: theme.textMuted }}>{formatFileSize(props.job.outputSize!)}</text>
+          <text style={{ fg: theme.textMuted }}> {formatFileSize(props.job.outputSize!)}</text>
         </Show>
       </Show>
 
@@ -152,7 +143,7 @@ function isRecentlyCompleted(job: ConversionJob, now: number): boolean {
 export function FileList(props: FileListProps) {
   const { theme } = useTheme();
 
-  const visibleCount = () => props.visibleCount ?? 15;
+  const visibleCount = () => props.visibleCount ?? 12;
 
   // Sort jobs by status priority for display
   const sortedJobs = createMemo(() => {
@@ -183,11 +174,6 @@ export function FileList(props: FileListProps) {
   const hasMore = () => sortedJobs().length > visibleCount();
   const remainingCount = () => sortedJobs().length - visibleCount();
 
-  // Calculate running count from jobs
-  const runningCount = createMemo(() => {
-    return props.jobs.filter((j) => j.status === 'running').length;
-  });
-
   // Track which jobs are recently completed for highlighting
   const recentlyCompletedIds = createMemo(() => {
     const now = Date.now();
@@ -200,20 +186,6 @@ export function FileList(props: FileListProps) {
 
   return (
     <box flexDirection="column" paddingX={2}>
-      {/* Header row with summary stats */}
-      <box flexDirection="row" gap={2} paddingBottom={1}>
-        <text style={{ fg: theme.primary }}>
-          Workers: {runningCount()}/{props.activeWorkers ?? runningCount()}
-        </text>
-        <text style={{ fg: theme.success }}>Done: {props.completedCount ?? 0}</text>
-        <text
-          style={{ fg: props.failedCount && props.failedCount > 0 ? theme.error : theme.textMuted }}
-        >
-          Failed: {props.failedCount ?? 0}
-        </text>
-        <text style={{ fg: theme.textMuted }}>Total: {props.totalCount ?? props.jobs.length}</text>
-      </box>
-
       <Show
         when={props.jobs.length > 0}
         fallback={<text style={{ fg: theme.textMuted }}>No files to process</text>}
