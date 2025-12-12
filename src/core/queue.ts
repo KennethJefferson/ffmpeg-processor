@@ -46,7 +46,7 @@ export class ConversionQueue {
     verbose?: boolean;
     callbacks?: QueueCallbacks;
   } = {}) {
-    this.concurrency = Math.min(Math.max(options.concurrency || 10, 1), 10);
+    this.concurrency = Math.min(Math.max(options.concurrency || 10, 1), 25);
     this.settings = options.settings || DEFAULT_FFMPEG_SETTINGS;
     this.verbose = options.verbose || false;
     this.callbacks = options.callbacks || {};

@@ -30,7 +30,7 @@ function parseOptions(options: Record<string, unknown>): CLIOptions {
       console.error('Error: Concurrency must be a positive number');
       process.exit(1);
     }
-    concurrency = Math.min(parsed, 10); // Cap at 10
+    concurrency = Math.min(parsed, 25); // Cap at 25
   }
 
   return {
@@ -52,7 +52,7 @@ export async function runCli(argv: string[] = process.argv): Promise<void> {
     .description('Batch video-to-MP3 converter for transcription preparation')
     .requiredOption('-i, --input <path>', 'Input directory to scan for video files')
     .option('-r, --recursive', 'Search subdirectories recursively', false)
-    .option('-c, --concurrency <number>', 'Maximum parallel conversions (1-10)', '10')
+    .option('-c, --concurrency <number>', 'Maximum parallel conversions (1-25)', '10')
     .option('-d, --dry-run', 'Preview files without converting', false)
     .option('-v, --verbose', 'Show detailed FFmpeg output', false)
     .action(async (options) => {
