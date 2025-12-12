@@ -33,10 +33,22 @@ function parseOptions(options: Record<string, unknown>): CLIOptions {
     concurrency = Math.min(parsed, 25); // Cap at 25
   }
 
+  // Parse scanners with validation
+  let scanners = 5;
+  if (options.scanners !== undefined) {
+    const parsed = parseInt(options.scanners as string, 10);
+    if (isNaN(parsed) || parsed < 1) {
+      console.error('Error: Scanners must be a positive number');
+      process.exit(1);
+    }
+    scanners = Math.min(parsed, 20); // Cap at 20
+  }
+
   return {
     input: resolve(input),
     recursive: Boolean(options.recursive),
     concurrency,
+    scanners,
     dryRun: Boolean(options.dryRun),
     verbose: Boolean(options.verbose),
   };
@@ -53,6 +65,7 @@ export async function runCli(argv: string[] = process.argv): Promise<void> {
     .requiredOption('-i, --input <path>', 'Input directory to scan for video files')
     .option('-r, --recursive', 'Search subdirectories recursively', false)
     .option('-c, --concurrency <number>', 'Maximum parallel conversions (1-25)', '10')
+    .option('-s, --scanners <number>', 'Parallel directory scanners (1-20)', '5')
     .option('-d, --dry-run', 'Preview files without converting', false)
     .option('-v, --verbose', 'Show detailed FFmpeg output', false)
     .action(async (options) => {

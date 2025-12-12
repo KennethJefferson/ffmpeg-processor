@@ -31,7 +31,8 @@ fmp -i <path> [options]
 
 # Optional
 -r, --recursive          Search subdirectories
--c, --concurrency <n>    Max parallel conversions (1-25, default: 10)
+-c, --concurrency <n>    Max parallel FFmpeg workers (1-25, default: 10)
+-s, --scanners <n>       Parallel directory scanners (1-20, default: 5)
 -d, --dry-run            Preview files without converting
 -v, --verbose            Show FFmpeg output
 ```
@@ -67,12 +68,12 @@ src/
         │   ├── processor-state.tsx  # Main state with streaming support
         │   └── helper.tsx
         └── routes/
-            └── processing.tsx # Main two-column processing view
+            └── processing.tsx # Main processing view with stats bar + file list
 ```
 
 ## Key Behaviors
 
-**Streaming Pipeline**: Scanner (producer) yields files as found via async generator. Queue (consumer) starts processing immediately while scanning continues. This enables "hot start" - no waiting for full scan before processing begins.
+**Parallel Streaming Pipeline**: Multiple directory scanners (configurable via `-s`) discover files in parallel. Queue (consumer) starts processing immediately while scanning continues. This enables "hot start" - no waiting for full scan before processing begins. Especially effective on network drives or wide directory trees.
 
 **Skip Logic**: Videos skipped if `.mp3` OR `.srt` with same basename exists.
 
@@ -82,7 +83,7 @@ src/
 - Ctrl+C once → Graceful: finish active jobs, skip pending (shows warning banner)
 - Ctrl+C twice → Immediate: kill all FFmpeg processes
 
-**UI Layout**: Two-column design with file list on left (with header showing Workers/Done/Failed/Total) and colored info panels stacked on right (Scanner, Progress, Status, I/O, Performance).
+**UI Layout**: Single-column design with consolidated stats bar above file list. Stats bar shows Scanner status, Progress, I/O, and Performance info horizontally. File list displays with header showing Workers/Done/Failed/Total and sorted by status (running at top, completed fade down).
 
 ## Tech Stack
 

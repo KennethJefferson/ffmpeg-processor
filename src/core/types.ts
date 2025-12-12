@@ -11,8 +11,10 @@ export interface CLIOptions {
   input: string;
   /** Search subdirectories recursively */
   recursive: boolean;
-  /** Maximum number of concurrent FFmpeg processes (1-10) */
+  /** Maximum number of concurrent FFmpeg processes (1-25) */
   concurrency: number;
+  /** Number of parallel directory scanners (1-20) */
+  scanners: number;
   /** Preview files without converting */
   dryRun: boolean;
   /** Show detailed FFmpeg output */

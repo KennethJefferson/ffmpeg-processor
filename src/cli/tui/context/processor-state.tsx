@@ -2,7 +2,7 @@
 import { createSignal, createEffect, onCleanup } from 'solid-js';
 import { createSimpleContext } from './helper.js';
 import type { CLIOptions, ConversionJob, QueueState, AppStatus } from '../../../core/types.js';
-import { scanDirectoryStream, validateInputDirectory, type ScanStats } from '../../../core/scanner.js';
+import { scanDirectoryStreamParallel, validateInputDirectory, type ScanStats } from '../../../core/scanner.js';
 import { validateFFmpeg } from '../../../core/converter.js';
 import { createQueue, type ConversionQueue } from '../../../core/queue.js';
 
@@ -238,7 +238,10 @@ export const { use: useProcessorState, provider: ProcessorStateProvider } = crea
         let stats: ScanStats = { totalFound: 0, toProcess: 0, skippedMP3: 0, skippedSRT: 0, errors: 0 };
 
         try {
-          for await (const event of scanDirectoryStream(props.options.input, props.options.recursive)) {
+          // Use parallel scanner for faster file discovery
+          // Directory workers from CLI, 10 file workers per directory
+          const parallelOptions = { directoryConcurrency: props.options.scanners, fileConcurrency: 10 };
+          for await (const event of scanDirectoryStreamParallel(props.options.input, props.options.recursive, parallelOptions)) {
             // Check if shutdown was requested
             if (isShuttingDown()) {
               break;

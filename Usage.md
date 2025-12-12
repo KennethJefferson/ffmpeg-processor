@@ -13,6 +13,7 @@ This guide provides a comprehensive walkthrough of every command-line option ava
 4. [Optional Arguments](#optional-arguments)
    - [Recursive Scanning (-r, --recursive)](#recursive-scanning--r---recursive)
    - [Concurrency (-c, --concurrency)](#concurrency--c---concurrency)
+   - [Scanners (-s, --scanners)](#scanners--s---scanners)
    - [Dry Run (-d, --dry-run)](#dry-run--d---dry-run)
    - [Verbose Output (-v, --verbose)](#verbose-output--v---verbose)
 5. [Argument Combinations](#argument-combinations)
@@ -276,6 +277,88 @@ This will be automatically reduced to 25 (the maximum).
 
 ---
 
+### Scanners (-s, --scanners)
+
+**Purpose**: Control how many directories are scanned in parallel for faster file discovery.
+
+**Syntax**:
+```
+-s <number>
+--scanners <number>
+```
+
+**Default**: `5`
+**Range**: `1` to `20`
+
+#### How It Works
+
+The scanner searches for video files across your directory tree. With parallel scanners, multiple directories are explored simultaneously instead of one at a time.
+
+```
+Sequential scanning (default before):
+  Folder1 → Folder2 → Folder3 → Folder4 → Folder5
+  (one at a time)
+
+Parallel scanning (-s 5):
+  [Scanner1: Folder1] [Scanner2: Folder2] [Scanner3: Folder3] ...
+  (5 folders scanned simultaneously)
+```
+
+#### Examples
+
+**Example 1: Default (5 parallel scanners)**
+```bash
+bun start -- -i "C:\Videos" -r
+```
+Scans up to 5 directories at once - good balance for local drives.
+
+**Example 2: Single scanner (sequential)**
+```bash
+bun start -- -i "C:\Videos" -r -s 1
+```
+Scans one directory at a time. Slowest but most predictable.
+
+**Example 3: Fast local scanning**
+```bash
+bun start -- -i "C:\Videos" -r -s 10
+```
+Aggressive scanning for fast SSDs with many subdirectories.
+
+**Example 4: Network drive optimization**
+```bash
+bun start -- -i "Z:\Archive" -r -s 20
+```
+Maximum scanners - ideal for network drives where I/O latency is high.
+
+**Example 5: Using long form**
+```bash
+bun start -- -i "C:\Videos" -r --scanners 15
+```
+Same as `-s 15`.
+
+#### Performance Guidelines
+
+| Scanners | Best For | I/O Load |
+|----------|----------|----------|
+| 1-3 | Slow HDDs, limited resources | Low |
+| 5 | Local SSDs, balanced approach | Medium |
+| 10-15 | Fast NVMe drives, wide directory trees | High |
+| 15-20 | Network drives, high-latency storage | Very High |
+
+#### When to Increase Scanners
+
+- **Network/NAS drives**: Higher values (15-20) help overcome network latency
+- **Wide directory trees**: Many sibling folders benefit from parallel scanning
+- **Fast storage**: SSDs and NVMe can handle more parallel I/O
+
+#### When to Decrease Scanners
+
+- **Slow HDDs**: Too many parallel reads can cause thrashing
+- **Limited RAM**: Each scanner uses memory for directory listings
+- **Shared storage**: Be considerate of other users on network drives
+
+---
+
 ### Dry Run (-d, --dry-run)
 
 **Purpose**: Preview which files would be converted WITHOUT actually converting them.
@@ -447,12 +530,17 @@ bun start -- -i "C:\Videos" -r -d -v
 
 **Maximum throughput (dedicated conversion):**
 ```bash
-bun start -- -i "Z:\VideoArchive" -r -c 25
+bun start -- -i "Z:\VideoArchive" -r -c 25 -s 15
+```
+
+**Network drive with fast scanning:**
+```bash
+bun start -- -i "Z:\Archive" -r -c 10 -s 20
 ```
 
 **Gentle background processing:**
 ```bash
-bun start -- -i "C:\Videos" -r -c 2
+bun start -- -i "C:\Videos" -r -c 2 -s 3
 ```
 
 ### Real-World Scenarios
@@ -583,10 +671,10 @@ The output MP3s will be small (32kbps mono) - perfect for speech-to-text service
 You want to convert a large archive while you sleep.
 
 ```bash
-bun start -- -i "Z:\VideoArchive" -r -c 10
+bun start -- -i "Z:\VideoArchive" -r -c 25 -s 20
 ```
 
-Maximum concurrency for fastest processing.
+Maximum workers and scanners for fastest processing on network storage.
 
 ### Scenario 3: Converting Specific Folder Without Subfolders
 
@@ -687,7 +775,8 @@ REQUIRED:
 
 OPTIONAL:
   -r, --recursive         Scan subdirectories (default: false)
-  -c, --concurrency <n>   Parallel conversions 1-25 (default: 10)
+  -c, --concurrency <n>   Parallel FFmpeg workers 1-25 (default: 10)
+  -s, --scanners <n>      Parallel directory scanners 1-20 (default: 5)
   -d, --dry-run           Preview without converting (default: false)
   -v, --verbose           Show FFmpeg output (default: false)
 
@@ -696,14 +785,15 @@ KEYBOARD:
   Ctrl+C (twice)          Immediate shutdown (kill all)
 
 UI LAYOUT:
-  Left column:  File list with Workers/Done/Failed/Total header
-  Right column: Scanner (pink), Progress (violet), Status (cyan),
-                I/O (teal), Performance (orange) panels
+  Stats bar: Scanner status, Progress, I/O info, Performance metrics
+  File list: Sorted by status (running at top, completed fade down)
+             Header shows Workers/Done/Failed/Total
 
-STREAMING MODE:
-  - Scanning and processing run concurrently (producer-consumer pipeline)
-  - Processing starts immediately as files are discovered (hot start)
-  - No waiting for full directory scan to complete
+PARALLEL STREAMING:
+  - Multiple scanners discover files in parallel (-s option)
+  - Processing starts immediately as files are found (hot start)
+  - Scanning and conversion run concurrently (producer-consumer)
+  - Especially effective on network drives or wide directory trees
 
 FORMATS:
   Input:  mp4, avi, mkv, wmv, mov, webm, flv

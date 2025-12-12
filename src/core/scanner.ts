@@ -154,6 +154,179 @@ export async function scanDirectory(
   };
 }
 
+/** Options for parallel scanner */
+export interface ParallelScanOptions {
+  /** Number of directories to scan in parallel (default: 5) */
+  directoryConcurrency?: number;
+  /** Number of files to process in parallel per directory (default: 10) */
+  fileConcurrency?: number;
+}
+
+/**
+ * Parallel streaming directory scanner (async generator)
+ *
+ * Scans multiple directories simultaneously for faster discovery
+ * on large directory trees or network drives.
+ *
+ * @param inputDir - Directory to scan
+ * @param recursive - Whether to scan subdirectories
+ * @param options - Parallel scan options
+ * @yields ScanEvent for each file found, skipped, or on error
+ */
+export async function* scanDirectoryStreamParallel(
+  inputDir: string,
+  recursive: boolean = false,
+  options: ParallelScanOptions = {}
+): AsyncGenerator<ScanEvent, void, unknown> {
+  const dirConcurrency = Math.max(1, Math.min(options.directoryConcurrency ?? 5, 20));
+  const fileConcurrency = Math.max(1, Math.min(options.fileConcurrency ?? 10, 50));
+
+  const stats: ScanStats = {
+    totalFound: 0,
+    toProcess: 0,
+    skippedMP3: 0,
+    skippedSRT: 0,
+    errors: 0,
+  };
+
+  // Work queues
+  const directoryQueue: string[] = [inputDir];
+  const eventBuffer: ScanEvent[] = [];
+  let activeWorkers = 0;
+  let scanComplete = false;
+
+  // Resolver for when new events are available
+  let eventResolver: (() => void) | null = null;
+
+  const notifyEvent = () => {
+    if (eventResolver) {
+      eventResolver();
+      eventResolver = null;
+    }
+  };
+
+  const waitForEvent = (): Promise<void> => {
+    return new Promise((resolve) => {
+      eventResolver = resolve;
+    });
+  };
+
+  // Process a single directory
+  const processDirectory = async (dirPath: string): Promise<void> => {
+    let entries;
+
+    try {
+      entries = await readdir(dirPath, { withFileTypes: true });
+    } catch (error) {
+      stats.errors++;
+      eventBuffer.push({ type: 'error', path: dirPath, error: (error as Error).message });
+      notifyEvent();
+      return;
+    }
+
+    eventBuffer.push({ type: 'directory', path: dirPath });
+    notifyEvent();
+
+    // Separate files and directories
+    const videoFiles: string[] = [];
+    const subdirs: string[] = [];
+
+    for (const entry of entries) {
+      const fullPath = join(dirPath, entry.name);
+
+      if (entry.isDirectory() && recursive) {
+        subdirs.push(fullPath);
+      } else if (entry.isFile()) {
+        const ext = extname(entry.name).toLowerCase();
+        if (isVideoExtension(ext)) {
+          videoFiles.push(fullPath);
+        }
+      }
+    }
+
+    // Add subdirectories to queue
+    directoryQueue.push(...subdirs);
+
+    // Process video files in parallel batches
+    for (let i = 0; i < videoFiles.length; i += fileConcurrency) {
+      const batch = videoFiles.slice(i, i + fileConcurrency);
+      const results = await Promise.allSettled(
+        batch.map(async (filePath) => {
+          const videoFile = await createVideoFile(filePath);
+          stats.totalFound++;
+
+          if (videoFile.hasSRT) {
+            stats.skippedSRT++;
+            return { type: 'skipped' as const, file: videoFile, reason: 'srt' as const };
+          } else if (videoFile.hasMP3) {
+            stats.skippedMP3++;
+            return { type: 'skipped' as const, file: videoFile, reason: 'mp3' as const };
+          } else {
+            stats.toProcess++;
+            return { type: 'file' as const, file: videoFile };
+          }
+        })
+      );
+
+      for (const result of results) {
+        if (result.status === 'fulfilled') {
+          eventBuffer.push(result.value);
+        } else {
+          stats.errors++;
+          eventBuffer.push({ type: 'error', path: 'unknown', error: result.reason?.message || 'Unknown error' });
+        }
+      }
+      notifyEvent();
+    }
+  };
+
+  // Worker function - grabs directories from queue and processes them
+  const worker = async (): Promise<void> => {
+    while (true) {
+      const dir = directoryQueue.shift();
+      if (!dir) break;
+
+      await processDirectory(dir);
+    }
+  };
+
+  // Start workers
+  const runWorkers = async (): Promise<void> => {
+    while (directoryQueue.length > 0 || activeWorkers > 0) {
+      // Spawn workers up to concurrency limit
+      while (activeWorkers < dirConcurrency && directoryQueue.length > 0) {
+        activeWorkers++;
+        worker().finally(() => {
+          activeWorkers--;
+        });
+      }
+
+      // Wait a bit before checking again
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+
+    scanComplete = true;
+    notifyEvent();
+  };
+
+  // Start the workers in background
+  const workerPromise = runWorkers();
+
+  // Yield events as they become available
+  while (!scanComplete || eventBuffer.length > 0) {
+    if (eventBuffer.length > 0) {
+      yield eventBuffer.shift()!;
+    } else if (!scanComplete) {
+      await waitForEvent();
+    }
+  }
+
+  await workerPromise;
+
+  // Emit completion event with final stats
+  yield { type: 'complete', stats };
+}
+
 /**
  * Streaming directory scanner (async generator)
  *

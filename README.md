@@ -6,9 +6,10 @@ A CLI-based batch video-to-MP3 converter with a beautiful violet-themed Terminal
 
 - **Batch Processing** - Convert entire directories of video files at once
 - **Parallel Conversion** - Up to 25 concurrent FFmpeg processes
+- **Parallel Scanning** - Up to 20 concurrent directory scanners for fast file discovery
 - **Streaming Pipeline** - Processing starts immediately while scanning continues (hot start)
 - **Smart Skip Logic** - Automatically skips videos that already have `.mp3` or `.srt` files
-- **Beautiful TUI** - Two-column layout with color-coded info panels (violet, pink, cyan, teal, orange)
+- **Beautiful TUI** - Clean layout with consolidated stats bar and sorted file list
 - **Transcription Optimized** - Outputs small MP3 files (16kHz mono, 32kbps) perfect for speech-to-text
 - **Graceful Shutdown** - Ctrl+C once to finish active jobs (with notification), twice to force stop
 
@@ -32,11 +33,14 @@ bun install
 # Basic usage - process all videos in a directory
 bun start -- -i "C:\Videos"
 
-# Recursive scan with 5 concurrent conversions
-bun start -- -i "Z:\Recordings" -r -c 5
+# Recursive scan with 25 workers and 10 scanners
+bun start -- -i "Z:\Recordings" -r -c 25 -s 10
 
 # Dry run - preview what would be converted
 bun start -- -i "C:\Videos" -r --dry-run
+
+# Network drive (more scanners help with latency)
+bun start -- -i "Z:\Archive" -r -c 10 -s 20
 
 # Show FFmpeg output for debugging
 bun start -- -i "C:\Videos" -v
@@ -48,7 +52,8 @@ bun start -- -i "C:\Videos" -v
 |--------|-------|-------------|---------|
 | `--input <path>` | `-i` | Input directory (required) | - |
 | `--recursive` | `-r` | Search subdirectories | `false` |
-| `--concurrency <n>` | `-c` | Max parallel conversions (1-25) | `10` |
+| `--concurrency <n>` | `-c` | Max parallel FFmpeg workers (1-25) | `10` |
+| `--scanners <n>` | `-s` | Parallel directory scanners (1-20) | `5` |
 | `--dry-run` | `-d` | Preview without converting | `false` |
 | `--verbose` | `-v` | Show FFmpeg output | `false` |
 
@@ -79,23 +84,16 @@ During processing:
 █▀  █▀  █ ▀ █ █▀▀ ██▄ █▄█   █▀▀ █▀▄ █▄█ █▄▄ ██▄ ▄█ ▄█ █▄█ █▀▄
         >>> Video → MP3 >>> Batch Converter >>>
 
-Workers: 18/25  Done: 12  Failed: 0  Total: 1871    ┌─ Scanner ────────────┐
-                                                    │ Scanning...          │
-✓ 1 -Introduction.mp4         [completed] 1.0 MB   │ Found: 1949          │
-● 1 -Literature Review.mp4    [████░░░░░░] 40%     │ Queue: 1871          │
-● 1 -Research Questions.mp4   [██░░░░░░░░] 20%     │ Skip: 78             │
-○ 1 -Research Methodology.mp4 [waiting...]         └──────────────────────┘
+◉ Scanning │ Progress: 12/1871 (1%) │ Workers: 25 (recursive) │ Time: 5:32 ETA: 2:15:00
+Found: 1949  Skip: 78 │ Active: 25  Failed: 0 │ Output: 45.2 MB      │ Speed: 2.2/min
+──────────────────────────────────────────────────────────────────────────────────────
+Workers: 18/25  Done: 12  Failed: 0  Total: 1871
+● 1 -Literature Review.mp4    [████░░░░░░] 40%
+● 1 -Research Questions.mp4   [██░░░░░░░░] 20%
+✓ 1 -Introduction.mp4         [completed] 1.0 MB
+○ 1 -Research Methodology.mp4 [waiting...]
 ○ 1 -Data Collection.mp4      [waiting...]
-... and 1853 more files                            ┌─ Progress ──────────┐
-                                                   │ [██████░░░░░░░░] 1% │
-                                                   │ 12/1871 files       │
-                                                   └──────────────────────┘
-
-                                                   ┌─ Status ─────────────┐
-                                                   │ Processing           │
-                                                   │ Active: 25           │
-                                                   │ Done: 12  Fail: 0    │
-                                                   └──────────────────────┘
+... and 1853 more files
 
 Press Ctrl+C to gracefully stop (let active jobs finish)
 ```
@@ -117,10 +115,10 @@ bun run build
 
 ```
 src/
-├── core/           # Business logic (scanner with async generator, converter, queue)
+├── core/           # Business logic (parallel scanner, converter, queue)
 ├── runtime/        # Entry point (cli-setup.ts)
 └── cli/tui/        # Terminal UI (SolidJS components, context, routes)
-    └── component/  # UI panels: scan, progress, stats, io, performance
+    └── component/  # UI components: logo, file-list, progress-bar
 ```
 
 ## Tech Stack
@@ -128,8 +126,8 @@ src/
 - **Runtime**: Bun / Node.js
 - **TUI**: OpenTUI + SolidJS
 - **CLI**: Commander.js
-- **Theme**: Violet (#A855F7) with pink, cyan, teal, orange accent panels
-- **Architecture**: Producer-consumer streaming pipeline
+- **Theme**: Violet (#A855F7) with accent colors
+- **Architecture**: Parallel producer-consumer streaming pipeline
 
 ## License
 
