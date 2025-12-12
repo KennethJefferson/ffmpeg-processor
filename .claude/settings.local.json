@@ -7,7 +7,12 @@
       "Bash(.ffmpeg-processor.exe -i \"K:\\Downloads\\New Folder\" -r -c 5)",
       "Bash(\"/c/Users/Tony Baloney/.bun/bin/bun.exe\" install)",
       "Bash(\"/c/Users/Tony Baloney/.bun/bin/bun.exe\" run build)",
-      "Bash(\"/c/Users/Tony Baloney/.bun/bin/bun.exe\" start -- -i \"K:\\Downloads\\New Folder\" -r -c 5)"
+      "Bash(\"/c/Users/Tony Baloney/.bun/bin/bun.exe\" start -- -i \"K:\\Downloads\\New Folder\" -r -c 5)",
+      "Bash(npx tsc:*)",
+      "Bash(\"/c/Users/Tony Baloney/.bun/bin/bun.exe\" run --bun src/core/verify.ts)",
+      "Bash(\"/c/Users/Tony Baloney/.bun/bin/bun.exe\" run --bun src/core/index.ts)",
+      "Bash(\"/c/Users/Tony Baloney/.bun/bin/bun.exe\" run --bun src/runtime/cli-setup.ts -- --help)",
+      "Bash(\"/c/Users/Tony Baloney/.bun/bin/bun.exe\" run --bun src/runtime/cli-setup.ts -- --verify -i \"E:\\Workspace.Dev.JS\\ffmpeg-processor\")"
     ],
     "deny": [],
     "ask": []

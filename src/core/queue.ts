@@ -183,9 +183,9 @@ export class ConversionQueue {
 
     // Don't start new jobs if shutting down or paused
     if (this.isShuttingDown || this.isPaused) {
-      // If immediate shutdown, kill all active jobs
+      // If immediate shutdown, kill all active jobs and cleanup partial outputs
       if (this.isImmediateShutdown && this.activeJobs.size > 0) {
-        killAllJobs();
+        killAllJobs(true);
         for (const [jobId] of this.activeJobs) {
           const job = this.jobs.find((j) => j.id === jobId);
           if (job) {
@@ -315,7 +315,7 @@ export class ConversionQueue {
 
   /**
    * Request immediate shutdown
-   * Kills all active FFmpeg processes
+   * Kills all active FFmpeg processes and cleans up partial output files
    */
   requestImmediateShutdown(): void {
     this.isShuttingDown = true;
@@ -328,8 +328,8 @@ export class ConversionQueue {
     }
     this.pendingJobs = [];
 
-    // Kill all active processes
-    killAllJobs();
+    // Kill all active processes and cleanup partial output files
+    killAllJobs(true);
 
     // Mark active jobs as cancelled
     for (const [jobId] of this.activeJobs) {

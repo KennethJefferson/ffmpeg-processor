@@ -19,6 +19,10 @@ export interface CLIOptions {
   dryRun: boolean;
   /** Show detailed FFmpeg output */
   verbose: boolean;
+  /** Verify mode: scan for suspect MP3 files */
+  verify: boolean;
+  /** Cleanup mode: delete suspect MP3 files */
+  cleanup: boolean;
 }
 
 // ============================================================================
@@ -42,12 +46,14 @@ export interface VideoFile {
   directory: string;
   /** File size in bytes */
   size: number;
-  /** Whether a matching .mp3 file exists */
+  /** Whether a matching .mp3 file exists and is valid (>= 10KB) */
   hasMP3: boolean;
   /** Whether a matching .srt file exists */
   hasSRT: boolean;
-  /** Whether this file should be skipped (has .mp3 or .srt) */
+  /** Whether this file should be skipped (has valid .mp3 or .srt) */
   shouldSkip: boolean;
+  /** Whether an .mp3 exists but is too small (< 10KB, likely incomplete) */
+  mp3TooSmall: boolean;
 }
 
 /** Result of scanning a directory for video files */

@@ -16,6 +16,8 @@ This guide provides a comprehensive walkthrough of every command-line option ava
    - [Scanners (-s, --scanners)](#scanners--s---scanners)
    - [Dry Run (-d, --dry-run)](#dry-run--d---dry-run)
    - [Verbose Output (-v, --verbose)](#verbose-output--v---verbose)
+   - [Verify Mode (--verify)](#verify-mode---verify)
+   - [Cleanup Mode (--cleanup)](#cleanup-mode---cleanup)
 5. [Argument Combinations](#argument-combinations)
 6. [Understanding the Skip Logic](#understanding-the-skip-logic)
 7. [Keyboard Controls](#keyboard-controls)
@@ -478,6 +480,155 @@ Same as `-v`.
 
 ---
 
+### Verify Mode (--verify)
+
+**Purpose**: Scan for broken or incomplete MP3 files without deleting them.
+
+**Syntax**:
+```
+--verify
+```
+
+**Default**: `false` (normal conversion mode)
+
+#### How It Works
+
+Verify mode scans for MP3 files and checks if they are valid:
+1. **Size check**: Files smaller than 10KB are considered incomplete
+2. **FFprobe validation**: If FFprobe is available, validates audio structure
+
+#### Examples
+
+**Example 1: Scan current directory**
+```bash
+bun start -- --verify -i "C:\Videos"
+```
+Scans `C:\Videos` for broken MP3 files.
+
+**Example 2: Recursive scan**
+```bash
+bun start -- --verify -i "C:\Videos" -r
+```
+Scans all subdirectories for broken MP3 files.
+
+#### Sample Output
+
+```
+=== FFmpeg Processor: Verify Mode ===
+
+FFprobe version: 6.0
+
+Configuration:
+  Input:     C:\Videos
+  Recursive: Yes
+  Mode:      Verify (report only)
+  Min size:  10KB
+
+Scanning for MP3 files...
+  Scanned 45 directories
+
+Results:
+  Total MP3 files:   150
+  Valid MP3 files:   147
+  Suspect MP3 files: 3
+
+Suspect files:
+  C:\Videos\clip1.mp3
+    Reason: File too small - 2KB < 10KB minimum
+  C:\Videos\subdir\video2.mp3
+    Reason: No audio stream - No audio stream found
+  C:\Videos\archive\broken.mp3
+    Reason: Invalid audio structure - Duration too short
+
+To delete these files, run with --cleanup flag.
+```
+
+---
+
+### Cleanup Mode (--cleanup)
+
+**Purpose**: Delete broken or incomplete MP3 files.
+
+**Syntax**:
+```
+--cleanup
+```
+
+**Default**: `false` (normal conversion mode)
+
+#### How It Works
+
+Cleanup mode performs the same validation as verify mode, but then deletes the invalid files. Use with `--dry-run` to preview what would be deleted.
+
+#### Examples
+
+**Example 1: Preview cleanup (safe)**
+```bash
+bun start -- --cleanup --dry-run -i "C:\Videos" -r
+```
+Shows which files WOULD be deleted without actually deleting them.
+
+**Example 2: Actually delete broken MP3s**
+```bash
+bun start -- --cleanup -i "C:\Videos" -r
+```
+Deletes all broken MP3 files found.
+
+#### Sample Output (Dry Run)
+
+```
+=== FFmpeg Processor: Verify Mode ===
+
+FFprobe version: 6.0
+
+Configuration:
+  Input:     C:\Videos
+  Recursive: Yes
+  Mode:      Cleanup (DRY RUN)
+  Min size:  10KB
+
+...
+
+DRY RUN - Would delete 3 files:
+  [WOULD DELETE] C:\Videos\clip1.mp3
+  [WOULD DELETE] C:\Videos\subdir\video2.mp3
+  [WOULD DELETE] C:\Videos\archive\broken.mp3
+
+Run without --dry-run to actually delete these files.
+```
+
+#### Sample Output (Actual Cleanup)
+
+```
+Deleting 3 suspect files...
+
+  [DELETED] C:\Videos\clip1.mp3
+  [DELETED] C:\Videos\subdir\video2.mp3
+  [DELETED] C:\Videos\archive\broken.mp3
+
+Deleted 3 files
+
+Run the converter again to re-process these videos.
+```
+
+#### Typical Workflow
+
+```bash
+# Step 1: Find broken MP3s
+bun start -- --verify -i "C:\Videos" -r
+
+# Step 2: Preview what would be deleted
+bun start -- --cleanup --dry-run -i "C:\Videos" -r
+
+# Step 3: Actually delete (if preview looks correct)
+bun start -- --cleanup -i "C:\Videos" -r
+
+# Step 4: Re-run conversion to process the videos again
+bun start -- -i "C:\Videos" -r
+```
+
+---
+
 ## Argument Combinations
 
 Here are practical examples combining multiple arguments:
@@ -578,22 +729,35 @@ FFmpeg Processor automatically skips videos that appear to already be processed.
 ### Skip Rules
 
 A video file will be **skipped** if a file with the same name exists with:
-- `.mp3` extension (already converted)
+- `.mp3` extension **AND** size ≥ 10KB (valid, already converted)
 - `.srt` extension (already transcribed)
+
+A video file will be **converted** if:
+- No companion `.mp3` or `.srt` exists
+- An `.mp3` exists but is smaller than 10KB (considered incomplete/broken)
 
 ### Examples
 
 ```
 C:\Videos\
 ├── lecture.mp4           → CONVERT (no companion files)
-├── meeting.mp4           → SKIP (meeting.mp3 exists)
-├── meeting.mp3
+├── meeting.mp4           → SKIP (meeting.mp3 exists and is ≥10KB)
+├── meeting.mp3           (15 KB - valid)
+├── broken.mp4            → CONVERT (broken.mp3 is too small)
+├── broken.mp3            (2 KB - incomplete, will be overwritten)
 ├── presentation.mp4      → SKIP (presentation.srt exists)
 ├── presentation.srt
 ├── interview.mp4         → SKIP (both exist)
 ├── interview.mp3
 └── interview.srt
 ```
+
+### Why 10KB?
+
+The 10KB minimum is based on the output format (16kHz mono, 32kbps):
+- A valid 1-second MP3 at 32kbps ≈ 4KB
+- A valid 3-second MP3 at 32kbps ≈ 12KB
+- Files smaller than 10KB are almost certainly incomplete from interrupted conversions
 
 ### Checking Skip Status
 
@@ -629,10 +793,10 @@ During conversion, you can control the process:
 ### Immediate Shutdown (Ctrl+C twice)
 
 - Kills all running FFmpeg processes immediately
+- **Automatically deletes partial output files** (prevents broken MP3s)
 - Exits right away
-- May leave partial/corrupted output files
 
-**When to use**: Emergency stop, something went wrong.
+**When to use**: Emergency stop, something went wrong. Partial files are cleaned up automatically.
 
 ### Visual Feedback
 
@@ -756,12 +920,28 @@ Single file at a time with verbose output shows exactly what's wrong.
 
 ### Partial/corrupted MP3 files
 
-**Problem**: Conversion was interrupted.
+**Problem**: Conversion was interrupted, leaving broken MP3 files.
 
 **Solutions**:
-1. Delete the partial .mp3 file
-2. Re-run the conversion
-3. The file will be processed again
+
+**Automatic (built-in)**:
+- MP3 files smaller than 10KB are automatically reconverted on the next run
+- Double Ctrl+C now automatically deletes partial files
+
+**Manual cleanup**:
+```bash
+# Step 1: Find broken MP3s
+bun start -- --verify -i "C:\Videos" -r
+
+# Step 2: Preview what would be deleted
+bun start -- --cleanup --dry-run -i "C:\Videos" -r
+
+# Step 3: Delete broken MP3s
+bun start -- --cleanup -i "C:\Videos" -r
+
+# Step 4: Re-run conversion
+bun start -- -i "C:\Videos" -r
+```
 
 ---
 
@@ -779,10 +959,12 @@ OPTIONAL:
   -s, --scanners <n>      Parallel directory scanners 1-20 (default: 5)
   -d, --dry-run           Preview without converting (default: false)
   -v, --verbose           Show FFmpeg output (default: false)
+  --verify                Scan for broken/incomplete MP3 files
+  --cleanup               Delete broken MP3 files (use with -d to preview)
 
 KEYBOARD:
   Ctrl+C (once)           Graceful shutdown (finish active jobs, shows warning)
-  Ctrl+C (twice)          Immediate shutdown (kill all)
+  Ctrl+C (twice)          Immediate shutdown (kill all + cleanup partial files)
 
 UI LAYOUT:
   Stats bar: Scanner status, Progress, I/O info, Performance metrics
@@ -800,7 +982,15 @@ FORMATS:
   Output: MP3 (16kHz mono, 32kbps) - optimized for transcription
 
 SKIP LOGIC:
-  Skips videos with existing .mp3 or .srt files (same basename)
+  - Skips videos with valid .mp3 (≥10KB) or .srt files
+  - MP3s < 10KB are considered incomplete and reconverted automatically
+  - Use --verify to find broken MP3s, --cleanup to delete them
+
+INCOMPLETE MP3 HANDLING:
+  - Size validation: MP3s < 10KB auto-reconverted
+  - Shutdown cleanup: Double Ctrl+C deletes partial files
+  - Verify mode: --verify scans for broken MP3s (FFprobe validation)
+  - Cleanup mode: --cleanup deletes broken MP3s
 ```
 
 ---

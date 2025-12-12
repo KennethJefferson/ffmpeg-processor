@@ -44,6 +44,9 @@ function parseOptions(options: Record<string, unknown>): CLIOptions {
     scanners = Math.min(parsed, 20); // Cap at 20
   }
 
+  const verify = Boolean(options.verify);
+  const cleanup = Boolean(options.cleanup);
+
   return {
     input: resolve(input),
     recursive: Boolean(options.recursive),
@@ -51,6 +54,8 @@ function parseOptions(options: Record<string, unknown>): CLIOptions {
     scanners,
     dryRun: Boolean(options.dryRun),
     verbose: Boolean(options.verbose),
+    verify,
+    cleanup,
   };
 }
 
@@ -68,8 +73,17 @@ export async function runCli(argv: string[] = process.argv): Promise<void> {
     .option('-s, --scanners <number>', 'Parallel directory scanners (1-20)', '5')
     .option('-d, --dry-run', 'Preview files without converting', false)
     .option('-v, --verbose', 'Show detailed FFmpeg output', false)
+    .option('--verify', 'Scan for suspect MP3 files (too small or invalid)', false)
+    .option('--cleanup', 'Delete suspect MP3 files (use with --dry-run to preview)', false)
     .action(async (options) => {
       const cliOptions = parseOptions(options);
+
+      // Handle verify/cleanup modes (console output, no TUI)
+      if (cliOptions.verify || cliOptions.cleanup) {
+        const { runVerifyMode } = await import('./verify-mode.js');
+        await runVerifyMode(cliOptions);
+        return;
+      }
 
       // Store options for TUI access
       process.env.FFMPEG_PROCESSOR_OPTIONS = JSON.stringify(cliOptions);

@@ -11,9 +11,10 @@
 
 import { readdir, stat } from 'node:fs/promises';
 import { join, extname, basename, dirname } from 'node:path';
-import { existsSync } from 'node:fs';
+import { existsSync, statSync } from 'node:fs';
 import type { VideoFile, ScanResult, VideoExtension } from './types.js';
 import { VIDEO_EXTENSIONS } from './types.js';
+import { MIN_VALID_MP3_SIZE } from './verify.js';
 
 /** Event emitted during streaming scan */
 export type ScanEvent =
@@ -41,17 +42,41 @@ function isVideoExtension(ext: string): ext is VideoExtension {
 
 /**
  * Check if companion files (.mp3, .srt) exist for a video file
+ *
+ * For MP3 files, also validates that the file is >= 10KB.
+ * Files smaller than 10KB are considered incomplete/broken.
  */
-function checkCompanionFiles(videoPath: string): { hasMP3: boolean; hasSRT: boolean } {
+function checkCompanionFiles(videoPath: string): {
+  hasMP3: boolean;
+  hasSRT: boolean;
+  mp3TooSmall: boolean;
+} {
   const dir = dirname(videoPath);
   const base = basename(videoPath, extname(videoPath));
 
   const mp3Path = join(dir, `${base}.mp3`);
   const srtPath = join(dir, `${base}.srt`);
 
+  let hasMP3 = false;
+  let mp3TooSmall = false;
+
+  if (existsSync(mp3Path)) {
+    try {
+      const stats = statSync(mp3Path);
+      if (stats.size >= MIN_VALID_MP3_SIZE) {
+        hasMP3 = true;
+      } else {
+        mp3TooSmall = true;
+      }
+    } catch {
+      // If we can't stat the file, treat as no MP3
+    }
+  }
+
   return {
-    hasMP3: existsSync(mp3Path),
+    hasMP3,
     hasSRT: existsSync(srtPath),
+    mp3TooSmall,
   };
 }
 
@@ -63,7 +88,7 @@ async function createVideoFile(filePath: string): Promise<VideoFile> {
   const ext = extname(filePath).toLowerCase() as VideoExtension;
   const base = basename(filePath, ext);
   const dir = dirname(filePath);
-  const { hasMP3, hasSRT } = checkCompanionFiles(filePath);
+  const { hasMP3, hasSRT, mp3TooSmall } = checkCompanionFiles(filePath);
 
   return {
     path: filePath,
@@ -74,6 +99,7 @@ async function createVideoFile(filePath: string): Promise<VideoFile> {
     hasMP3,
     hasSRT,
     shouldSkip: hasMP3 || hasSRT,
+    mp3TooSmall,
   };
 }
 

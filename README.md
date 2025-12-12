@@ -8,10 +8,12 @@ A CLI-based batch video-to-MP3 converter with a beautiful violet-themed Terminal
 - **Parallel Conversion** - Up to 25 concurrent FFmpeg processes
 - **Parallel Scanning** - Up to 20 concurrent directory scanners for fast file discovery
 - **Streaming Pipeline** - Processing starts immediately while scanning continues (hot start)
-- **Smart Skip Logic** - Automatically skips videos that already have `.mp3` or `.srt` files
+- **Smart Skip Logic** - Automatically skips videos that already have valid `.mp3` or `.srt` files
+- **Incomplete MP3 Detection** - MP3s < 10KB are considered broken and automatically reconverted
+- **Verify/Cleanup Mode** - Scan for and delete broken MP3s from interrupted conversions
 - **Beautiful TUI** - Clean layout with consolidated stats bar and sorted file list
 - **Transcription Optimized** - Outputs small MP3 files (16kHz mono, 32kbps) perfect for speech-to-text
-- **Graceful Shutdown** - Ctrl+C once to finish active jobs (with notification), twice to force stop
+- **Graceful Shutdown** - Ctrl+C once to finish active jobs, twice to force stop AND cleanup partial files
 
 ## Installation
 
@@ -56,6 +58,8 @@ bun start -- -i "C:\Videos" -v
 | `--scanners <n>` | `-s` | Parallel directory scanners (1-20) | `5` |
 | `--dry-run` | `-d` | Preview without converting | `false` |
 | `--verbose` | `-v` | Show FFmpeg output | `false` |
+| `--verify` | - | Scan for broken/incomplete MP3 files | `false` |
+| `--cleanup` | - | Delete broken MP3 files (use with `--dry-run` to preview) | `false` |
 
 ## Supported Formats
 
@@ -67,15 +71,31 @@ bun start -- -i "C:\Videos" -v
 
 The processor automatically skips video files that already have companion files with the same basename:
 
-- `video.mp4` + `video.mp3` exists → **Skip** (already converted)
+- `video.mp4` + `video.mp3` (≥10KB) exists → **Skip** (already converted)
+- `video.mp4` + `video.mp3` (<10KB) exists → **Convert** (incomplete, will overwrite)
 - `video.mp4` + `video.srt` exists → **Skip** (already transcribed)
 - `video.mp4` alone → **Convert**
+
+### Handling Incomplete MP3s
+
+If a conversion was interrupted (double Ctrl+C), the partial MP3 file is automatically deleted. Any remaining broken MP3s from previous runs can be found and removed:
+
+```bash
+# Find broken MP3 files
+bun start -- --verify -i "C:\Videos" -r
+
+# Preview what would be deleted
+bun start -- --cleanup --dry-run -i "C:\Videos" -r
+
+# Actually delete broken MP3s
+bun start -- --cleanup -i "C:\Videos" -r
+```
 
 ## Keyboard Controls
 
 During processing:
 - **Ctrl+C (once)** - Graceful shutdown: finish active conversions, skip remaining (shows warning banner)
-- **Ctrl+C (twice)** - Immediate shutdown: kill all FFmpeg processes
+- **Ctrl+C (twice)** - Immediate shutdown: kill all FFmpeg processes AND delete partial output files
 
 ## TUI Preview
 
@@ -115,8 +135,8 @@ bun run build
 
 ```
 src/
-├── core/           # Business logic (parallel scanner, converter, queue)
-├── runtime/        # Entry point (cli-setup.ts)
+├── core/           # Business logic (scanner, converter, queue, verify)
+├── runtime/        # Entry points (cli-setup.ts, verify-mode.ts)
 └── cli/tui/        # Terminal UI (SolidJS components, context, routes)
     └── component/  # UI components: logo, file-list, progress-bar
 ```

@@ -35,6 +35,23 @@ fmp -i <path> [options]
 -s, --scanners <n>       Parallel directory scanners (1-20, default: 5)
 -d, --dry-run            Preview files without converting
 -v, --verbose            Show FFmpeg output
+--verify                 Scan for suspect MP3 files (too small or invalid)
+--cleanup                Delete suspect MP3 files (use with --dry-run to preview)
+```
+
+### Verify/Cleanup Mode
+
+Handle incomplete or broken MP3 files from interrupted conversions:
+
+```bash
+# Find broken MP3s (size-based + FFprobe validation)
+ffmpeg-processor --verify -i "C:\Videos" -r
+
+# Preview what would be deleted
+ffmpeg-processor --cleanup --dry-run -i "C:\Videos" -r
+
+# Actually delete broken MP3s (then re-run normal conversion)
+ffmpeg-processor --cleanup -i "C:\Videos" -r
 ```
 
 ## Architecture
@@ -44,11 +61,13 @@ src/
 ├── core/                    # Business logic
 │   ├── types.ts             # Type definitions (CLIOptions, VideoFile, ConversionJob)
 │   ├── scanner.ts           # Directory scanning (batch + streaming async generator)
-│   ├── converter.ts         # FFmpeg spawning, progress parsing
+│   ├── converter.ts         # FFmpeg spawning, progress parsing, shutdown cleanup
 │   ├── queue.ts             # Parallel job queue with streaming mode support
+│   ├── verify.ts            # MP3 validation (size-based + FFprobe)
 │   └── index.ts             # Core exports
 ├── runtime/
-│   └── cli-setup.ts         # Entry point: Commander.js CLI parsing, TUI launch
+│   ├── cli-setup.ts         # Entry point: Commander.js CLI parsing, TUI launch
+│   └── verify-mode.ts       # Console-based verify/cleanup mode
 └── cli/
     ├── index.ts             # CLI exports
     └── tui/                  # Terminal User Interface
@@ -75,13 +94,19 @@ src/
 
 **Parallel Streaming Pipeline**: Multiple directory scanners (configurable via `-s`) discover files in parallel. Queue (consumer) starts processing immediately while scanning continues. This enables "hot start" - no waiting for full scan before processing begins. Especially effective on network drives or wide directory trees.
 
-**Skip Logic**: Videos skipped if `.mp3` OR `.srt` with same basename exists.
+**Skip Logic**: Videos skipped if valid `.mp3` (>= 10KB) OR `.srt` with same basename exists. MP3 files smaller than 10KB are considered incomplete and will be reconverted.
 
 **FFmpeg Command**: `ffmpeg -i input -vn -ar 16000 -ac 1 -b:a 32k -acodec libmp3lame -y output.mp3`
 
 **Shutdown**:
 - Ctrl+C once → Graceful: finish active jobs, skip pending (shows warning banner)
-- Ctrl+C twice → Immediate: kill all FFmpeg processes
+- Ctrl+C twice → Immediate: kill all FFmpeg processes AND delete partial output files
+
+**Incomplete MP3 Handling**:
+- Size validation: MP3s < 10KB are considered incomplete and reconverted automatically
+- Shutdown cleanup: Partial files from killed processes are deleted automatically
+- Verify mode: Use `--verify` to scan for broken MP3s (FFprobe validation)
+- Cleanup mode: Use `--cleanup` to delete broken MP3s (preview with `--dry-run`)
 
 **UI Layout**: Single-column design with consolidated stats bar above file list. Stats bar shows Scanner status, Progress, I/O, and Performance info horizontally. File list displays with header showing Workers/Done/Failed/Total and sorted by status (running at top, completed fade down).
 

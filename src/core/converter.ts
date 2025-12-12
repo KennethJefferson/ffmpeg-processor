@@ -6,13 +6,16 @@
 
 import { spawn, type ChildProcess } from 'node:child_process';
 import { stat } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
+import { existsSync, unlinkSync } from 'node:fs';
 import type { ConversionJob, ConversionResult, FFmpegSettings, VideoFile } from './types.js';
 import { DEFAULT_FFMPEG_SETTINGS } from './types.js';
 import { getOutputPath } from './scanner.js';
 
 // Track active processes for shutdown handling
 const activeProcesses = new Map<string, ChildProcess>();
+
+// Track output paths for cleanup on immediate shutdown
+const activeOutputPaths = new Map<string, string>();
 
 /**
  * Generate a unique job ID
@@ -207,8 +210,9 @@ export async function executeConversion(
       stdio: ['ignore', 'pipe', 'pipe'],
     });
 
-    // Track this process for shutdown handling
+    // Track this process and output path for shutdown handling
     activeProcesses.set(job.id, ffmpegProcess);
+    activeOutputPaths.set(job.id, job.outputPath);
 
     let duration: number | null = null;
     let stderrOutput = '';
@@ -242,6 +246,7 @@ export async function executeConversion(
 
     ffmpegProcess.on('close', async (code) => {
       activeProcesses.delete(job.id);
+      activeOutputPaths.delete(job.id);
       const endTime = Date.now();
       const processingTime = endTime - startTime;
 
@@ -298,6 +303,7 @@ export async function executeConversion(
 
     ffmpegProcess.on('error', (err) => {
       activeProcesses.delete(job.id);
+      activeOutputPaths.delete(job.id);
       const endTime = Date.now();
 
       job.status = 'failed';
@@ -329,12 +335,34 @@ export function killJob(jobId: string): boolean {
 
 /**
  * Kill all active conversion processes
+ *
+ * @param cleanupOutputs - If true, delete partial output files (default: false)
+ * @returns Array of deleted file paths (only when cleanupOutputs is true)
  */
-export function killAllJobs(): void {
+export function killAllJobs(cleanupOutputs: boolean = false): string[] {
+  const deletedFiles: string[] = [];
+
   for (const [jobId, process] of activeProcesses) {
     process.kill('SIGKILL');
+
+    // Clean up partial output files if requested
+    if (cleanupOutputs) {
+      const outputPath = activeOutputPaths.get(jobId);
+      if (outputPath && existsSync(outputPath)) {
+        try {
+          unlinkSync(outputPath);
+          deletedFiles.push(outputPath);
+        } catch {
+          // Ignore deletion errors - best effort cleanup
+        }
+      }
+    }
+
     activeProcesses.delete(jobId);
+    activeOutputPaths.delete(jobId);
   }
+
+  return deletedFiles;
 }
 
 /**
