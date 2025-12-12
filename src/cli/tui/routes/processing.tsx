@@ -8,10 +8,12 @@ import { ProgressPanel } from '../component/progress-panel.js';
 import { StatsPanel } from '../component/stats-panel.js';
 import { IOPanel } from '../component/io-panel.js';
 import { PerformancePanel } from '../component/performance-panel.js';
+import { ScanPanel } from '../component/scan-panel.js';
 import { formatFileSize } from '../../../core/scanner.js';
 
 /**
  * Main processing view - Two column layout
+ * Supports streaming mode (scan + process in parallel)
  */
 export function ProcessingRoute() {
   const { theme } = useTheme();
@@ -21,8 +23,8 @@ export function ProcessingRoute() {
   onMount(async () => {
     await state.initialize();
 
-    // Auto-start processing if not dry run and files found
-    if (state.status === 'idle' && state.scanResult && state.scanResult.filesToProcess.length > 0) {
+    // Auto-start processing if not dry run (streaming mode)
+    if (state.status === 'idle' && !state.options.dryRun) {
       await state.startProcessing();
     }
   });
@@ -41,7 +43,7 @@ export function ProcessingRoute() {
   };
 
   const isComplete = () => state.status === 'completed';
-  const skippedCount = () => (state.scanResult?.skippedMP3 ?? 0) + (state.scanResult?.skippedSRT ?? 0);
+  const skippedCount = () => (state.scanStats?.skippedMP3 ?? 0) + (state.scanStats?.skippedSRT ?? 0);
 
   return (
     <box flexDirection="column" flexGrow={1}>
@@ -55,29 +57,29 @@ export function ProcessingRoute() {
         </box>
       </Show>
 
-      {/* Scanning status */}
+      {/* Initial scanning status (before streaming starts) */}
       <Show when={state.status === 'scanning'}>
         <box paddingX={2} paddingY={1}>
-          <text style={{ fg: theme.primary }}>Scanning for video files...</text>
+          <text style={{ fg: theme.primary }}>Validating FFmpeg and input directory...</text>
         </box>
       </Show>
 
       {/* Dry run results */}
-      <Show when={state.options.dryRun && state.scanResult}>
+      <Show when={state.options.dryRun && state.scanStats}>
         <box flexDirection="column" paddingX={2} paddingY={1}>
           <text style={{ fg: theme.warning }}>DRY RUN - No files will be converted</text>
           <box height={1} />
           <text style={{ fg: theme.text }}>
-            Found {state.scanResult!.totalFound} video files:
+            Found {state.scanStats!.totalFound} video files:
           </text>
           <text style={{ fg: theme.success }}>
-            - {state.scanResult!.filesToProcess.length} files to convert
+            - {state.scanStats!.toProcess} files to convert
           </text>
           <text style={{ fg: theme.textMuted }}>
-            - {state.scanResult!.skippedMP3} skipped (already have MP3)
+            - {state.scanStats!.skippedMP3} skipped (already have MP3)
           </text>
           <text style={{ fg: theme.textMuted }}>
-            - {state.scanResult!.skippedSRT} skipped (already have SRT)
+            - {state.scanStats!.skippedSRT} skipped (already have SRT)
           </text>
         </box>
       </Show>
@@ -92,11 +94,18 @@ export function ProcessingRoute() {
             </box>
 
             {/* Completion message */}
-            <Show when={state.status === 'completed' && !state.options.dryRun}>
+            <Show when={state.status === 'completed' && !state.options.dryRun && state.completedCount > 0}>
               <box paddingX={1} paddingY={1}>
                 <text style={{ fg: theme.success }}>
                   Done! Converted {state.completedCount} files ({formatFileSize(state.totalOutputSize)})
                 </text>
+              </box>
+            </Show>
+
+            {/* No files found message */}
+            <Show when={state.status === 'completed' && state.completedCount === 0 && state.error}>
+              <box paddingX={1} paddingY={1}>
+                <text style={{ fg: theme.warning }}>{state.error}</text>
               </box>
             </Show>
 
@@ -112,6 +121,15 @@ export function ProcessingRoute() {
 
           {/* RIGHT COLUMN: Info panels */}
           <box flexDirection="column" width={24} paddingRight={1}>
+            {/* Scanner Panel (pink) - shows scanning progress */}
+            <ScanPanel
+              isScanning={state.isScanning}
+              stats={state.scanStats}
+              currentDir={state.currentScanDir}
+            />
+
+            <box height={1} />
+
             {/* Progress Panel (violet) */}
             <ProgressPanel
               current={state.completedCount}
@@ -140,7 +158,7 @@ export function ProcessingRoute() {
               recursive={state.options.recursive}
               concurrency={state.options.concurrency}
               totalOutputSize={state.totalOutputSize}
-              totalFound={state.scanResult?.totalFound}
+              totalFound={state.scanStats?.totalFound}
               skippedCount={skippedCount()}
             />
 

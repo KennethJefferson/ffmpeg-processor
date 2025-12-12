@@ -3,6 +3,10 @@
  *
  * Scans directories for video files and checks for existing
  * companion files (.mp3, .srt) to determine which files to skip.
+ *
+ * Supports two modes:
+ * - Batch: scanDirectory() returns all files at once
+ * - Streaming: scanDirectoryStream() yields files as they're found (producer-consumer pattern)
  */
 
 import { readdir, stat } from 'node:fs/promises';
@@ -10,6 +14,23 @@ import { join, extname, basename, dirname } from 'node:path';
 import { existsSync } from 'node:fs';
 import type { VideoFile, ScanResult, VideoExtension } from './types.js';
 import { VIDEO_EXTENSIONS } from './types.js';
+
+/** Event emitted during streaming scan */
+export type ScanEvent =
+  | { type: 'file'; file: VideoFile }
+  | { type: 'skipped'; file: VideoFile; reason: 'mp3' | 'srt' }
+  | { type: 'error'; path: string; error: string }
+  | { type: 'directory'; path: string }
+  | { type: 'complete'; stats: ScanStats };
+
+/** Statistics tracked during streaming scan */
+export interface ScanStats {
+  totalFound: number;
+  toProcess: number;
+  skippedMP3: number;
+  skippedSRT: number;
+  errors: number;
+}
 
 /**
  * Check if a file extension is a supported video format
@@ -131,6 +152,92 @@ export async function scanDirectory(
     skippedSRT,
     totalFound: allFiles.length,
   };
+}
+
+/**
+ * Streaming directory scanner (async generator)
+ *
+ * Yields VideoFile objects as they're discovered, enabling
+ * a producer-consumer pipeline where processing can start
+ * immediately while scanning continues.
+ *
+ * @param inputDir - Directory to scan
+ * @param recursive - Whether to scan subdirectories
+ * @yields ScanEvent for each file found, skipped, or on error
+ *
+ * @example
+ * ```ts
+ * for await (const event of scanDirectoryStream(dir, true)) {
+ *   if (event.type === 'file') {
+ *     queue.addFile(event.file);
+ *   }
+ * }
+ * ```
+ */
+export async function* scanDirectoryStream(
+  inputDir: string,
+  recursive: boolean = false
+): AsyncGenerator<ScanEvent, void, unknown> {
+  const stats: ScanStats = {
+    totalFound: 0,
+    toProcess: 0,
+    skippedMP3: 0,
+    skippedSRT: 0,
+    errors: 0,
+  };
+
+  // Internal recursive generator
+  async function* scanRecursive(dirPath: string): AsyncGenerator<ScanEvent, void, unknown> {
+    let entries;
+
+    try {
+      entries = await readdir(dirPath, { withFileTypes: true });
+    } catch (error) {
+      stats.errors++;
+      yield { type: 'error', path: dirPath, error: (error as Error).message };
+      return;
+    }
+
+    yield { type: 'directory', path: dirPath };
+
+    for (const entry of entries) {
+      const fullPath = join(dirPath, entry.name);
+
+      if (entry.isDirectory() && recursive) {
+        // Recursively scan subdirectories
+        yield* scanRecursive(fullPath);
+      } else if (entry.isFile()) {
+        const ext = extname(entry.name).toLowerCase();
+
+        if (isVideoExtension(ext)) {
+          try {
+            const videoFile = await createVideoFile(fullPath);
+            stats.totalFound++;
+
+            if (videoFile.hasSRT) {
+              stats.skippedSRT++;
+              yield { type: 'skipped', file: videoFile, reason: 'srt' };
+            } else if (videoFile.hasMP3) {
+              stats.skippedMP3++;
+              yield { type: 'skipped', file: videoFile, reason: 'mp3' };
+            } else {
+              stats.toProcess++;
+              yield { type: 'file', file: videoFile };
+            }
+          } catch (error) {
+            stats.errors++;
+            yield { type: 'error', path: fullPath, error: (error as Error).message };
+          }
+        }
+      }
+    }
+  }
+
+  // Run the recursive scan
+  yield* scanRecursive(inputDir);
+
+  // Emit completion event with final stats
+  yield { type: 'complete', stats };
 }
 
 /**

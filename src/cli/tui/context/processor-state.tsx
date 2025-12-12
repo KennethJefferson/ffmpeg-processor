@@ -1,8 +1,8 @@
 /** @jsxImportSource @opentui/solid */
 import { createSignal, createEffect, onCleanup } from 'solid-js';
 import { createSimpleContext } from './helper.js';
-import type { CLIOptions, ConversionJob, QueueState, ScanResult, AppStatus } from '../../../core/types.js';
-import { scanDirectory, validateInputDirectory } from '../../../core/scanner.js';
+import type { CLIOptions, ConversionJob, QueueState, AppStatus } from '../../../core/types.js';
+import { scanDirectoryStream, validateInputDirectory, type ScanStats } from '../../../core/scanner.js';
 import { validateFFmpeg } from '../../../core/converter.js';
 import { createQueue, type ConversionQueue } from '../../../core/queue.js';
 
@@ -14,8 +14,10 @@ export interface ProcessorStateValue {
   // CLI options
   options: CLIOptions;
 
-  // Scan results
-  scanResult: ScanResult | null;
+  // Scanning state (streaming mode)
+  isScanning: boolean;
+  scanStats: ScanStats | null;
+  currentScanDir: string | null;
 
   // Queue state
   jobs: ConversionJob[];
@@ -48,7 +50,13 @@ export const { use: useProcessorState, provider: ProcessorStateProvider } = crea
     // State signals
     const [status, setStatus] = createSignal<AppStatus>('idle');
     const [error, setError] = createSignal<string | null>(null);
-    const [scanResult, setScanResult] = createSignal<ScanResult | null>(null);
+
+    // Scanning state
+    const [isScanning, setIsScanning] = createSignal(false);
+    const [scanStats, setScanStats] = createSignal<ScanStats | null>(null);
+    const [currentScanDir, setCurrentScanDir] = createSignal<string | null>(null);
+
+    // Queue state
     const [jobs, setJobs] = createSignal<ConversionJob[]>([]);
     const [activeCount, setActiveCount] = createSignal(0);
     const [completedCount, setCompletedCount] = createSignal(0);
@@ -116,27 +124,32 @@ export const { use: useProcessorState, provider: ProcessorStateProvider } = crea
           return;
         }
 
-        // Scan for video files
-        const result = await scanDirectory(props.options.input, props.options.recursive);
-        setScanResult(result);
-
-        if (result.filesToProcess.length === 0) {
-          if (result.totalFound === 0) {
-            setError('No video files found in the specified directory');
-          } else {
-            setError(`All ${result.totalFound} video files already have MP3 or SRT companions`);
-          }
-          setStatus('completed');
-          return;
-        }
-
-        // If dry run, just show results
+        // If dry run, do a full scan first (batch mode)
         if (props.options.dryRun) {
+          const { scanDirectory } = await import('../../../core/scanner.js');
+          const result = await scanDirectory(props.options.input, props.options.recursive);
+
+          if (result.filesToProcess.length === 0) {
+            if (result.totalFound === 0) {
+              setError('No video files found in the specified directory');
+            } else {
+              setError(`All ${result.totalFound} video files already have MP3 or SRT companions`);
+            }
+          }
+
+          setScanStats({
+            totalFound: result.totalFound,
+            toProcess: result.filesToProcess.length,
+            skippedMP3: result.skippedMP3,
+            skippedSRT: result.skippedSRT,
+            errors: 0,
+          });
+
           setStatus('completed');
           return;
         }
 
-        // Ready to process
+        // Ready to start streaming processing
         setStatus('idle');
       } catch (err) {
         setError((err as Error).message);
@@ -144,23 +157,26 @@ export const { use: useProcessorState, provider: ProcessorStateProvider } = crea
       }
     };
 
-    // Start processing
+    // Start streaming processing (producer-consumer pipeline)
     const startProcessing = async () => {
-      const result = scanResult();
-      if (!result || result.filesToProcess.length === 0) return;
-
       setStatus('processing');
       setStartTime(Date.now());
       setElapsedTime(0);
       setCompletedCount(0);
       setFailedCount(0);
       setTotalOutputSize(0);
+      setIsScanning(true);
+      setScanStats({ totalFound: 0, toProcess: 0, skippedMP3: 0, skippedSRT: 0, errors: 0 });
 
       // Create queue with callbacks
       queue = createQueue({
         concurrency: props.options.concurrency,
         verbose: props.options.verbose,
         callbacks: {
+          onFileAdded: (job) => {
+            // Add job to UI list
+            setJobs((prev) => [...prev, job]);
+          },
           onJobStart: (job) => {
             setJobs((prev) => prev.map((j) => (j.id === job.id ? { ...j, status: 'running' } : j)));
             setActiveCount((prev) => prev + 1);
@@ -195,6 +211,9 @@ export const { use: useProcessorState, provider: ProcessorStateProvider } = crea
               setFailedCount((prev) => prev + 1);
             }
           },
+          onScanComplete: () => {
+            setIsScanning(false);
+          },
           onQueueComplete: () => {
             setElapsedTime(Date.now() - startTime());
             const wasShuttingDown = isShuttingDown();
@@ -211,12 +230,72 @@ export const { use: useProcessorState, provider: ProcessorStateProvider } = crea
         },
       });
 
-      // Add files to queue
-      const addedJobs = queue.addFiles(result.filesToProcess);
-      setJobs(addedJobs);
+      // Start the queue (it will wait for files to be added)
+      const queuePromise = queue.start();
 
-      // Start processing
-      await queue.start();
+      // Run scanner as producer - add files to queue as they're found
+      const runScanner = async () => {
+        let stats: ScanStats = { totalFound: 0, toProcess: 0, skippedMP3: 0, skippedSRT: 0, errors: 0 };
+
+        try {
+          for await (const event of scanDirectoryStream(props.options.input, props.options.recursive)) {
+            // Check if shutdown was requested
+            if (isShuttingDown()) {
+              break;
+            }
+
+            switch (event.type) {
+              case 'file':
+                // Add file to queue immediately (hot start)
+                queue!.addFile(event.file);
+                stats.toProcess++;
+                stats.totalFound++;
+                break;
+
+              case 'skipped':
+                stats.totalFound++;
+                if (event.reason === 'mp3') stats.skippedMP3++;
+                else stats.skippedSRT++;
+                break;
+
+              case 'directory':
+                setCurrentScanDir(event.path);
+                break;
+
+              case 'error':
+                stats.errors++;
+                break;
+
+              case 'complete':
+                stats = event.stats;
+                break;
+            }
+
+            // Update stats in UI
+            setScanStats({ ...stats });
+          }
+        } finally {
+          // Signal that scanning is complete
+          setIsScanning(false);
+          setCurrentScanDir(null);
+          queue!.markScanComplete();
+        }
+
+        // Handle case where no files were found
+        if (stats.toProcess === 0) {
+          if (stats.totalFound === 0) {
+            setError('No video files found in the specified directory');
+          } else {
+            setError(`All ${stats.totalFound} video files already have MP3 or SRT companions`);
+          }
+        }
+      };
+
+      // Run scanner in parallel with processing
+      runScanner();
+
+      // Wait for queue to complete
+      await queuePromise;
     };
 
     // Request shutdown (handles Ctrl+C)
@@ -251,8 +330,14 @@ export const { use: useProcessorState, provider: ProcessorStateProvider } = crea
       get options() {
         return props.options;
       },
-      get scanResult() {
-        return scanResult();
+      get isScanning() {
+        return isScanning();
+      },
+      get scanStats() {
+        return scanStats();
+      },
+      get currentScanDir() {
+        return currentScanDir();
       },
       get jobs() {
         return jobs();

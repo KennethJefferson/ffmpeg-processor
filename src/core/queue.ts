@@ -2,6 +2,8 @@
  * Parallel Conversion Queue
  *
  * Manages parallel FFmpeg conversion jobs with concurrency control.
+ * Supports streaming mode (producer-consumer pattern) where files
+ * can be added while processing is in progress.
  */
 
 import type {
@@ -16,11 +18,25 @@ import type {
 import { DEFAULT_FFMPEG_SETTINGS } from './types.js';
 import { createConversionJob, executeConversion, killJob, killAllJobs } from './converter.js';
 
+/** Extended callbacks for streaming mode */
+export interface StreamingQueueCallbacks extends QueueCallbacks {
+  /** Called when a new file is added to the queue */
+  onFileAdded?: (job: ConversionJob) => void;
+  /** Called when scanning completes */
+  onScanComplete?: () => void;
+}
+
 /**
  * Parallel Conversion Queue
  *
  * Manages a queue of conversion jobs with configurable concurrency.
- * Supports pause/resume and graceful/immediate shutdown.
+ * Supports pause/resume, graceful/immediate shutdown, and streaming mode.
+ *
+ * Streaming Mode:
+ * - Call start() to begin processing (can start empty)
+ * - Add files with addFile() as they're discovered
+ * - Call markScanComplete() when no more files will be added
+ * - Queue completes when scan is done AND all jobs are processed
  */
 export class ConversionQueue {
   private jobs: ConversionJob[] = [];
@@ -31,12 +47,16 @@ export class ConversionQueue {
   private concurrency: number;
   private settings: FFmpegSettings;
   private verbose: boolean;
-  private callbacks: QueueCallbacks;
+  private callbacks: StreamingQueueCallbacks;
 
   private isPaused: boolean = false;
   private isShuttingDown: boolean = false;
   private isImmediateShutdown: boolean = false;
   private startTime: number = 0;
+
+  // Streaming mode support
+  private isStarted: boolean = false;
+  private isScanComplete: boolean = false;
 
   private resolveQueue?: (summary: QueueSummary) => void;
 
@@ -44,7 +64,7 @@ export class ConversionQueue {
     concurrency?: number;
     settings?: FFmpegSettings;
     verbose?: boolean;
-    callbacks?: QueueCallbacks;
+    callbacks?: StreamingQueueCallbacks;
   } = {}) {
     this.concurrency = Math.min(Math.max(options.concurrency || 10, 1), 25);
     this.settings = options.settings || DEFAULT_FFMPEG_SETTINGS;
@@ -54,12 +74,24 @@ export class ConversionQueue {
 
   /**
    * Add a video file to the queue
+   *
+   * In streaming mode, this can be called while processing is in progress.
+   * The job will be picked up by the next available worker.
    */
   addFile(videoFile: VideoFile): ConversionJob {
     const job = createConversionJob(videoFile);
     this.jobs.push(job);
     this.pendingJobs.push(job);
+
+    // Notify that a file was added
+    this.callbacks.onFileAdded?.(job);
     this.notifyStateChange();
+
+    // If queue is already running, trigger processing
+    if (this.isStarted && !this.isPaused && !this.isShuttingDown) {
+      this.processNext();
+    }
+
     return job;
   }
 
@@ -94,9 +126,13 @@ export class ConversionQueue {
 
   /**
    * Start processing the queue
+   *
+   * In streaming mode, call this before adding files.
+   * Processing will begin as files are added.
    */
   async start(): Promise<QueueSummary> {
     this.startTime = Date.now();
+    this.isStarted = true;
     this.isShuttingDown = false;
     this.isImmediateShutdown = false;
     this.isPaused = false;
@@ -108,12 +144,40 @@ export class ConversionQueue {
   }
 
   /**
+   * Mark that scanning is complete (no more files will be added)
+   *
+   * In streaming mode, call this when the scanner finishes.
+   * The queue will complete once all pending jobs are processed.
+   */
+  markScanComplete(): void {
+    this.isScanComplete = true;
+    this.callbacks.onScanComplete?.();
+    this.notifyStateChange();
+
+    // Check if we can complete now
+    if (this.pendingJobs.length === 0 && this.activeJobs.size === 0) {
+      this.complete();
+    }
+  }
+
+  /**
+   * Check if scanning is complete
+   */
+  isScanningComplete(): boolean {
+    return this.isScanComplete;
+  }
+
+  /**
    * Process next jobs in the queue
    */
   private async processNext(): Promise<void> {
-    // Check for completion
+    // Check for completion (only if scan is complete or shutting down)
     if (this.pendingJobs.length === 0 && this.activeJobs.size === 0) {
-      this.complete();
+      // In streaming mode, only complete if scan is done
+      if (this.isScanComplete || this.isShuttingDown) {
+        this.complete();
+      }
+      // Otherwise, wait for more files to be added
       return;
     }
 
@@ -353,7 +417,7 @@ export function createQueue(options?: {
   concurrency?: number;
   settings?: FFmpegSettings;
   verbose?: boolean;
-  callbacks?: QueueCallbacks;
+  callbacks?: StreamingQueueCallbacks;
 }): ConversionQueue {
   return new ConversionQueue(options);
 }
