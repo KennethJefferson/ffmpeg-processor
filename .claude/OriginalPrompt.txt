@@ -1,0 +1,26 @@
+I want to create a CLI-based ffmpeg processor with node or Bun and Typescript. As far the Terminal User Interface (TUI), I want you to look at the following image for the banner design, color scheme (change to violet instead of blue), and other elements. I want my application to look and operate just like the project located at @E__OtherProjects\CodeMachine-CLI (which is what the @ss.gif image represents).
+
+Place your plan to the local .claude (this project's .claude, not global .claude) folder (.claude\plans\
+
+As far as the functionality of the application, it will go as follows:
+
+ffmpeg binary location: 'C:\FFMPEG\bin\ffmpeg.exe'
+ffmpeg is in the system's PATH variable
+
+Example terminal command layout: .\ffmpegProcessor.(js/exe (I'm not sure which is launched for js-based applications)) -input/-i "C:\ExampleDirectory" -recursive ...(Other ffmpeg arguments)
+
+
+input/i 	(Required): Input directory to search for video (mp4, avi, mkv, wmv, etc...) files to convert to mp3
+recursive 	(Optional): Search all the subfolders for the given input folder provided by user
+
+Other CLI arguments I'll it to you generate and decide if they're required or optional
+
+I do need concurrency (parallel support) to convert multiple video files to mp3.
+
+I do want to make the converted mp3 as small as possible, said mp3 will just be used to transcribed, so whatever minimum qualify/file size will pass for transcription, lets use that. I don't want to waste too much time converting.
+
+We will only process video files that DO NOT already have a corresponding (same file name) mp3 or srt. If there is an srt, the assumption is that said video file has already been processed and we can skip. If there is an mp3, the assumption is that video file has been converted to mp3 and is ready to be transcribed, but just hasn't been processed yet, in which case, its also safe to skip.
+
+Challenge my assumptions and ask clarifying questions.
+
+Note: Yes, I know I should probably be doing this using Powershell or Go, but I want to use the TUI.
