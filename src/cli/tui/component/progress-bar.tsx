@@ -83,11 +83,11 @@ export function MiniProgressBar(props: MiniProgressBarProps) {
   const emptyChar = '░';
 
   return (
-    <text>
-      <span style={{ fg: theme.borderSubtle }}>[</span>
-      <span style={{ fg: theme.primary }}>{filledChar.repeat(filledWidth())}</span>
-      <span style={{ fg: theme.borderSubtle }}>{emptyChar.repeat(width() - filledWidth())}</span>
-      <span style={{ fg: theme.borderSubtle }}>]</span>
-    </text>
+    <box flexDirection="row">
+      <text style={{ fg: theme.borderSubtle }}>[</text>
+      <text style={{ fg: theme.primary }}>{filledChar.repeat(filledWidth())}</text>
+      <text style={{ fg: theme.borderSubtle }}>{emptyChar.repeat(width() - filledWidth())}</text>
+      <text style={{ fg: theme.borderSubtle }}>]</text>
+    </box>
   );
 }

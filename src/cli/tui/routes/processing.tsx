@@ -90,10 +90,12 @@ export function ProcessingRoute() {
               <text style={{ fg: state.isScanning ? theme.pink : theme.success }}>
                 {state.isScanning ? '◉ Scanning' : '✓ Scan Done'}
               </text>
-              <text style={{ fg: theme.textMuted }}>
-                Found: <text style={{ fg: theme.text }}>{state.scanStats?.totalFound ?? 0}</text>
-                {' '}Skip: <text style={{ fg: theme.warning }}>{skippedCount()}</text>
-              </text>
+              <box flexDirection="row">
+                <text style={{ fg: theme.textMuted }}>Found: </text>
+                <text style={{ fg: theme.text }}>{state.scanStats?.totalFound ?? 0}</text>
+                <text style={{ fg: theme.textMuted }}> Skip: </text>
+                <text style={{ fg: theme.warning }}>{skippedCount()}</text>
+              </box>
             </box>
 
             {/* Divider */}
@@ -105,12 +107,14 @@ export function ProcessingRoute() {
                 Progress: {state.completedCount}/{state.jobs.length} ({state.jobs.length > 0 ? Math.round((state.completedCount / state.jobs.length) * 100) : 0}%)
               </text>
               <box flexDirection="row" gap={1}>
-                <text style={{ fg: theme.textMuted }}>
-                  Active: <text style={{ fg: theme.primary }}>{state.activeCount}</text>
-                </text>
-                <text style={{ fg: theme.textMuted }}>
-                  Failed: <text style={{ fg: state.failedCount > 0 ? theme.error : theme.textMuted }}>{state.failedCount}</text>
-                </text>
+                <box flexDirection="row">
+                  <text style={{ fg: theme.textMuted }}>Active: </text>
+                  <text style={{ fg: theme.primary }}>{state.activeCount}</text>
+                </box>
+                <box flexDirection="row">
+                  <text style={{ fg: theme.textMuted }}>Failed: </text>
+                  <text style={{ fg: state.failedCount > 0 ? theme.error : theme.textMuted }}>{state.failedCount}</text>
+                </box>
               </box>
             </box>
 
@@ -122,9 +126,10 @@ export function ProcessingRoute() {
               <text style={{ fg: theme.teal }}>
                 Workers: {state.options.concurrency} {state.options.recursive ? '(recursive)' : ''}
               </text>
-              <text style={{ fg: theme.textMuted }}>
-                Output: <text style={{ fg: theme.success }}>{formatFileSize(state.totalOutputSize)}</text>
-              </text>
+              <box flexDirection="row">
+                <text style={{ fg: theme.textMuted }}>Output: </text>
+                <text style={{ fg: theme.success }}>{formatFileSize(state.totalOutputSize)}</text>
+              </box>
             </box>
 
             {/* Divider */}
@@ -136,13 +141,15 @@ export function ProcessingRoute() {
                 Time: {formatTime(state.elapsedTime)}
                 {state.estimatedRemaining ? ` ETA: ${formatTime(state.estimatedRemaining)}` : ''}
               </text>
-              <text style={{ fg: theme.textMuted }}>
-                Speed: <text style={{ fg: theme.orange }}>
+              <box flexDirection="row">
+                <text style={{ fg: theme.textMuted }}>Speed: </text>
+                <text style={{ fg: theme.orange }}>
                   {state.elapsedTime > 1000 && state.completedCount > 0
                     ? (state.completedCount / (state.elapsedTime / 60000)).toFixed(1)
                     : '---'}
-                </text>/min
-              </text>
+                </text>
+                <text style={{ fg: theme.textMuted }}>/min</text>
+              </box>
             </box>
           </box>
 
