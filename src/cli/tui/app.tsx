@@ -97,7 +97,7 @@ export async function startTUI(options: CLIOptions): Promise<void> {
     process.off('SIGINT', handleSigint);
   };
 
-  // Render the app
+  // Render the app - disable exitOnCtrlC so we can handle shutdown gracefully
   const instance = render(
     () => (
       <box
@@ -114,6 +114,7 @@ export async function startTUI(options: CLIOptions): Promise<void> {
       fps: 30,
       useMouse: false,
       useKittyKeyboard: true,
+      exitOnCtrlC: false,
     }
   );
 

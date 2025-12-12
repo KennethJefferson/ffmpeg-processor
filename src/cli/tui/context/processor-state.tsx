@@ -197,7 +197,13 @@ export const { use: useProcessorState, provider: ProcessorStateProvider } = crea
           },
           onQueueComplete: () => {
             setElapsedTime(Date.now() - startTime());
-            setStatus(isShuttingDown() ? 'cancelled' : 'completed');
+            const wasShuttingDown = isShuttingDown();
+            setStatus(wasShuttingDown ? 'cancelled' : 'completed');
+
+            // Exit after graceful shutdown completes
+            if (wasShuttingDown) {
+              setTimeout(() => process.exit(0), 100);
+            }
           },
           onStateChange: (state: QueueState) => {
             setIsShuttingDown(state.isShuttingDown);

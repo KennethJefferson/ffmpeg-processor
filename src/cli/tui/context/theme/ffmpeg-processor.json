@@ -20,6 +20,9 @@
     "darkGreen": "#22c55e",
     "darkYellow": "#eab308",
     "darkCyan": "#06b6d4",
+    "darkOrange": "#f97316",
+    "darkPink": "#ec4899",
+    "darkTeal": "#14b8a6",
 
     "lightStep1": "#faf5ff",
     "lightStep2": "#f3e8ff",
@@ -94,6 +97,22 @@
     "violet": {
       "dark": "darkPurple",
       "light": "lightStep9"
+    },
+    "cyan": {
+      "dark": "darkCyan",
+      "light": "darkCyan"
+    },
+    "orange": {
+      "dark": "darkOrange",
+      "light": "darkOrange"
+    },
+    "pink": {
+      "dark": "darkPink",
+      "light": "darkPink"
+    },
+    "teal": {
+      "dark": "darkTeal",
+      "light": "darkTeal"
     }
   }
 }

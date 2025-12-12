@@ -20,6 +20,10 @@ export type Theme = {
   borderActive: RGBA;
   borderSubtle: RGBA;
   violet: RGBA;
+  cyan: RGBA;
+  orange: RGBA;
+  pink: RGBA;
+  teal: RGBA;
 };
 
 type HexColor = `#${string}`;
