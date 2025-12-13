@@ -1,0 +1,79 @@
+ Tony Baloney  Aaliyah  E:\..\ffmpeg-processor  main    claude --dangerously-skip-permissions
+
+╭─── Claude Code v2.0.69 ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│                                          │ Recent activity                                                                                                │
+│            Welcome back Tony!            │ No recent activity                                                                                             │
+│                                          │ ────────────────────────────────────────────────────────────────────────────────────────────────────────────── │
+│                * ▐▛███▜▌ *               │ What's new                                                                                                     │
+│               * ▝▜█████▛▘ *              │ Minor bugfixes                                                                                                 │
+│                *  ▘▘ ▝▝  *               │ Fixed IME (Input Method Editor) support for languages like Chinese, Japanese, and Korean by correctly positio… │
+│                                          │ Fixed a bug where disallowed MCP tools were visible to the model                                               │
+│   Opus 4.5 · Claude Max · Tony Baloney   │ /release-notes for more                                                                                        │
+│   E:\Workspace.Dev.JS\ffmpeg-processor   │                                                                                                                │
+╰───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+
+> So the number of workers shown in the TUI is twelve, I need that number increased to 25. Do we need to increase the vertical box the workers panel
+resides in? If not, then how is it done? I want to learn for future reference.
+
+● Let me look at how the workers panel is implemented to understand the current limit.
+
+● Search(pattern: "worker|Worker", path: "src\cli\tui")
+  ⎿  Found 3 files (ctrl+o to expand)
+
+● Search(pattern: "src/cli/tui/**/*.tsx", path: "E:\Workspace.Dev.JS\ffmpeg-processor")
+  ⎿  Found 13 files (ctrl+o to expand)
+
+● Read(src\cli\tui\routes\processing.tsx)
+  ⎿  Read 169 lines
+
+● Read(src\cli\tui\component\file-list.tsx)
+  ⎿  Read 204 lines
+
+● Found it. The limit is controlled by a prop, not a container size.
+
+  Current code (src/cli/tui/routes/processing.tsx:128):
+  <FileList jobs={state.jobs} visibleCount={12} />
+
+  How it works:
+
+  The FileList component accepts a visibleCount prop that limits how many items to render:
+
+  // file-list.tsx:146
+  const visibleCount = () => props.visibleCount ?? 12;
+
+  // file-list.tsx:170-172
+  const visibleJobs = createMemo(() => {
+    return sortedJobs().slice(0, visibleCount());
+  });
+
+  The fix is simply changing 12 to 25:
+
+  <FileList jobs={state.jobs} visibleCount={25} />
+
+  Why no box resize needed:
+
+  The parent container uses flexDirection="column" and flexGrow={1} which allows it to expand vertically to fit its content. The visibleCount is purely a rendering limit (how many items to slice from the array), not a size constraint on the container. The container will automatically grow to show more items.
+
+  This is a common pattern: instead of CSS overflow/scroll containers, you control visible items at the data level with .slice(0, n).
+
+  Would you like me to make this change?
+
+> yes
+
+● Update(src\cli\tui\routes\processing.tsx)
+  ⎿  Updated src\cli\tui\routes\processing.tsx with 1 addition and 1 removal
+       125
+       126            {/* File list */}
+       127            <box paddingY={1}>
+       128 -            <FileList jobs={state.jobs} visibleCount={12} />
+       128 +            <FileList jobs={state.jobs} visibleCount={25} />
+       129            </box>
+       130
+       131            {/* Completion message */}
+
+● Done. The file list will now show up to 25 items instead of 12.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+> rebuild and test the change (tab to accept)
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ bypass permissions on (alt+m to cycle)

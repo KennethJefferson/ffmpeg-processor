@@ -125,7 +125,7 @@ export function ProcessingRoute() {
 
         {/* File list */}
         <box paddingY={1}>
-          <FileList jobs={state.jobs} visibleCount={12} />
+          <FileList jobs={state.jobs} visibleCount={25} />
         </box>
 
         {/* Completion message */}
