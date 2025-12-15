@@ -14,7 +14,7 @@ import { join, extname, basename, dirname } from 'node:path';
 import { existsSync, statSync } from 'node:fs';
 import type { VideoFile, ScanResult, VideoExtension } from './types.js';
 import { VIDEO_EXTENSIONS } from './types.js';
-import { MIN_VALID_MP3_SIZE } from './verify.js';
+import type { ConversionDB } from './db.js';
 
 /** Event emitted during streaming scan */
 export type ScanEvent =
@@ -43,13 +43,16 @@ function isVideoExtension(ext: string): ext is VideoExtension {
 /**
  * Check if companion files (.mp3, .srt) exist for a video file
  *
- * For MP3 files, also validates that the file is >= 10KB.
- * Files smaller than 10KB are considered incomplete/broken.
+ * Uses database to check if conversion is complete. If DB says complete
+ * but MP3 is missing, deletes the DB record to allow reconversion.
+ *
+ * @param videoPath - Full path to the video file
+ * @param db - Optional conversion database for status tracking
  */
-function checkCompanionFiles(videoPath: string): {
+function checkCompanionFiles(videoPath: string, db?: ConversionDB): {
   hasMP3: boolean;
   hasSRT: boolean;
-  mp3TooSmall: boolean;
+  isIncomplete: boolean;
 } {
   const dir = dirname(videoPath);
   const base = basename(videoPath, extname(videoPath));
@@ -58,37 +61,49 @@ function checkCompanionFiles(videoPath: string): {
   const srtPath = join(dir, `${base}.srt`);
 
   let hasMP3 = false;
-  let mp3TooSmall = false;
+  let isIncomplete = false;
 
-  if (existsSync(mp3Path)) {
-    try {
-      const stats = statSync(mp3Path);
-      if (stats.size >= MIN_VALID_MP3_SIZE) {
+  if (db) {
+    // Database-based check (preferred)
+    const record = db.getStatus(videoPath);
+
+    if (record?.status === 'complete') {
+      // Verify MP3 file still exists
+      if (existsSync(mp3Path)) {
         hasMP3 = true;
       } else {
-        mp3TooSmall = true;
+        // MP3 was deleted - remove DB record to allow reconversion
+        db.deleteRecord(videoPath);
       }
-    } catch {
-      // If we can't stat the file, treat as no MP3
+    } else if (record?.status === 'processing') {
+      // Interrupted conversion - mark as incomplete
+      isIncomplete = true;
     }
+    // If status is 'failed' or no record, hasMP3 stays false (needs conversion)
+  } else {
+    // Fallback: just check if MP3 file exists (no status validation)
+    hasMP3 = existsSync(mp3Path);
   }
 
   return {
     hasMP3,
     hasSRT: existsSync(srtPath),
-    mp3TooSmall,
+    isIncomplete,
   };
 }
 
 /**
  * Create a VideoFile object from a file path
+ *
+ * @param filePath - Full path to the video file
+ * @param db - Optional conversion database for status tracking
  */
-async function createVideoFile(filePath: string): Promise<VideoFile> {
+async function createVideoFile(filePath: string, db?: ConversionDB): Promise<VideoFile> {
   const fileStats = await stat(filePath);
   const ext = extname(filePath).toLowerCase() as VideoExtension;
   const base = basename(filePath, ext);
   const dir = dirname(filePath);
-  const { hasMP3, hasSRT, mp3TooSmall } = checkCompanionFiles(filePath);
+  const { hasMP3, hasSRT, isIncomplete } = checkCompanionFiles(filePath, db);
 
   return {
     path: filePath,
@@ -99,7 +114,7 @@ async function createVideoFile(filePath: string): Promise<VideoFile> {
     hasMP3,
     hasSRT,
     shouldSkip: hasMP3 || hasSRT,
-    mp3TooSmall,
+    isIncomplete,
   };
 }
 
@@ -110,7 +125,8 @@ async function scanDirectoryRecursive(
   dirPath: string,
   recursive: boolean,
   results: VideoFile[],
-  onProgress?: (current: string) => void
+  onProgress?: (current: string) => void,
+  db?: ConversionDB
 ): Promise<void> {
   let entries;
 
@@ -127,7 +143,7 @@ async function scanDirectoryRecursive(
 
     if (entry.isDirectory() && recursive) {
       // Recursively scan subdirectories
-      await scanDirectoryRecursive(fullPath, recursive, results, onProgress);
+      await scanDirectoryRecursive(fullPath, recursive, results, onProgress, db);
     } else if (entry.isFile()) {
       const ext = extname(entry.name).toLowerCase();
 
@@ -135,7 +151,7 @@ async function scanDirectoryRecursive(
         onProgress?.(fullPath);
 
         try {
-          const videoFile = await createVideoFile(fullPath);
+          const videoFile = await createVideoFile(fullPath, db);
           results.push(videoFile);
         } catch (error) {
           console.warn(`Warning: Cannot process file ${fullPath}: ${(error as Error).message}`);
@@ -151,17 +167,19 @@ async function scanDirectoryRecursive(
  * @param inputDir - Directory to scan
  * @param recursive - Whether to scan subdirectories
  * @param onProgress - Optional callback for progress updates
+ * @param db - Optional conversion database for status tracking
  * @returns ScanResult containing all found files and skip statistics
  */
 export async function scanDirectory(
   inputDir: string,
   recursive: boolean = false,
-  onProgress?: (currentFile: string) => void
+  onProgress?: (currentFile: string) => void,
+  db?: ConversionDB
 ): Promise<ScanResult> {
   const allFiles: VideoFile[] = [];
 
   // Scan the directory
-  await scanDirectoryRecursive(inputDir, recursive, allFiles, onProgress);
+  await scanDirectoryRecursive(inputDir, recursive, allFiles, onProgress, db);
 
   // Sort files by path for consistent ordering
   allFiles.sort((a, b) => a.path.localeCompare(b.path));
@@ -200,12 +218,14 @@ const MAX_EVENT_BUFFER_SIZE = 1000;
  * @param inputDir - Directory to scan
  * @param recursive - Whether to scan subdirectories
  * @param options - Parallel scan options
+ * @param db - Optional conversion database for status tracking
  * @yields ScanEvent for each file found, skipped, or on error
  */
 export async function* scanDirectoryStreamParallel(
   inputDir: string,
   recursive: boolean = false,
-  options: ParallelScanOptions = {}
+  options: ParallelScanOptions = {},
+  db?: ConversionDB
 ): AsyncGenerator<ScanEvent, void, unknown> {
   const dirConcurrency = Math.max(1, Math.min(options.directoryConcurrency ?? 5, 20));
   const fileConcurrency = Math.max(1, Math.min(options.fileConcurrency ?? 10, 50));
@@ -293,7 +313,7 @@ export async function* scanDirectoryStreamParallel(
       const batch = videoFiles.slice(i, i + fileConcurrency);
       const results = await Promise.allSettled(
         batch.map(async (filePath) => {
-          const videoFile = await createVideoFile(filePath);
+          const videoFile = await createVideoFile(filePath, db);
           stats.totalFound++;
 
           if (videoFile.hasSRT) {
@@ -377,11 +397,12 @@ export async function* scanDirectoryStreamParallel(
  *
  * @param inputDir - Directory to scan
  * @param recursive - Whether to scan subdirectories
+ * @param db - Optional conversion database for status tracking
  * @yields ScanEvent for each file found, skipped, or on error
  *
  * @example
  * ```ts
- * for await (const event of scanDirectoryStream(dir, true)) {
+ * for await (const event of scanDirectoryStream(dir, true, db)) {
  *   if (event.type === 'file') {
  *     queue.addFile(event.file);
  *   }
@@ -390,7 +411,8 @@ export async function* scanDirectoryStreamParallel(
  */
 export async function* scanDirectoryStream(
   inputDir: string,
-  recursive: boolean = false
+  recursive: boolean = false,
+  db?: ConversionDB
 ): AsyncGenerator<ScanEvent, void, unknown> {
   const stats: ScanStats = {
     totalFound: 0,
@@ -425,7 +447,7 @@ export async function* scanDirectoryStream(
 
         if (isVideoExtension(ext)) {
           try {
-            const videoFile = await createVideoFile(fullPath);
+            const videoFile = await createVideoFile(fullPath, db);
             stats.totalFound++;
 
             if (videoFile.hasSRT) {

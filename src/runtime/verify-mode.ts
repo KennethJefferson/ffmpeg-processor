@@ -1,20 +1,18 @@
 /**
  * Verify Mode - Console-based MP3 verification and cleanup
  *
- * Scans for suspect MP3 files (too small or invalid) and optionally deletes them.
+ * Uses database tracking to find incomplete/failed conversions.
  * Uses console output (no TUI) for scripting and automation.
  */
 
-import { readdir } from 'node:fs/promises';
-import { unlink } from 'node:fs/promises';
-import { join, extname } from 'node:path';
 import type { CLIOptions } from '../core/types.js';
+import { openConversionDB, conversionDBExists } from '../core/db.js';
 import {
-  validateFFprobe,
-  validateMP3,
-  MIN_VALID_MP3_SIZE,
-  type MP3ValidationResult,
+  findSuspectConversions,
+  cleanupSuspectConversions,
+  type SuspectConversion,
 } from '../core/verify.js';
+import { formatFileSize } from '../core/scanner.js';
 
 // ============================================================================
 // ANSI Colors
@@ -46,120 +44,112 @@ export async function runVerifyMode(options: CLIOptions): Promise<void> {
   console.log(`${colors.violet}${colors.bold}=== FFmpeg Processor: Verify Mode ===${colors.reset}`);
   console.log();
 
-  // Check FFprobe availability
-  const ffprobeResult = await validateFFprobe();
-  if (!ffprobeResult.valid) {
-    console.log(`${colors.yellow}Warning: FFprobe not available - using size-only validation${colors.reset}`);
-    console.log(`  ${colors.dim}${ffprobeResult.error}${colors.reset}`);
-    console.log();
-  } else {
-    console.log(`${colors.green}FFprobe version: ${ffprobeResult.version}${colors.reset}`);
-    console.log();
-  }
-
   // Show configuration
   console.log(`${colors.cyan}Configuration:${colors.reset}`);
   console.log(`  Input:     ${options.input}`);
-  console.log(`  Recursive: ${options.recursive ? 'Yes' : 'No'}`);
   console.log(`  Mode:      ${getModeDescription(mode)}`);
-  console.log(`  Min size:  ${MIN_VALID_MP3_SIZE / 1024}KB`);
   console.log();
 
-  // Scan for MP3 files
-  console.log(`${colors.cyan}Scanning for MP3 files...${colors.reset}`);
-
-  const suspectFiles: MP3ValidationResult[] = [];
-  let totalMP3s = 0;
-  let scannedDirs = 0;
-
-  // Process all MP3 files
-  await scanMP3Files(options.input, options.recursive, async (mp3Path) => {
-    totalMP3s++;
-
-    // Show progress every 100 files
-    if (totalMP3s % 100 === 0) {
-      process.stdout.write(`\r  Scanned ${totalMP3s} MP3 files...`);
-    }
-
-    // Validate the MP3 (use FFprobe if available)
-    const result = await validateMP3(mp3Path, ffprobeResult.valid);
-
-    if (!result.isValid) {
-      suspectFiles.push(result);
-    }
-  }, () => {
-    scannedDirs++;
-  });
-
-  // Clear progress line
-  if (totalMP3s >= 100) {
-    process.stdout.write('\r' + ' '.repeat(50) + '\r');
-  }
-
-  console.log(`  Scanned ${scannedDirs} directories`);
-  console.log();
-
-  // Results summary
-  console.log(`${colors.cyan}Results:${colors.reset}`);
-  console.log(`  Total MP3 files:   ${totalMP3s}`);
-  console.log(`  Valid MP3 files:   ${colors.green}${totalMP3s - suspectFiles.length}${colors.reset}`);
-  console.log(`  Suspect MP3 files: ${suspectFiles.length > 0 ? colors.yellow : colors.green}${suspectFiles.length}${colors.reset}`);
-  console.log();
-
-  if (suspectFiles.length === 0) {
-    console.log(`${colors.green}No suspect MP3 files found.${colors.reset}`);
+  // Check if database exists
+  if (!conversionDBExists(options.input)) {
+    console.log(`${colors.yellow}No conversion database found in this directory.${colors.reset}`);
+    console.log(`${colors.dim}Run a conversion first to create the tracking database.${colors.reset}`);
+    console.log();
+    console.log(`${colors.dim}Database would be created at: ${options.input}/.ffmpeg-processor.db${colors.reset}`);
     console.log();
     return;
   }
 
-  // List suspect files
-  console.log(`${colors.yellow}Suspect files:${colors.reset}`);
-  for (const file of suspectFiles) {
-    console.log(`  ${file.path}`);
-    console.log(`    ${colors.dim}Reason: ${formatReason(file.reason)} - ${file.details}${colors.reset}`);
-  }
-  console.log();
+  // Open database
+  const db = openConversionDB(options.input);
 
-  // Handle cleanup mode
-  if (mode === 'cleanup-dry') {
-    console.log(`${colors.yellow}DRY RUN - Would delete ${suspectFiles.length} files:${colors.reset}`);
-    for (const file of suspectFiles) {
-      console.log(`  ${colors.dim}[WOULD DELETE]${colors.reset} ${file.path}`);
+  try {
+    // Find suspect conversions
+    console.log(`${colors.cyan}Checking conversion database...${colors.reset}`);
+    console.log();
+
+    const summary = findSuspectConversions(db);
+
+    // Results summary
+    console.log(`${colors.cyan}Results:${colors.reset}`);
+    console.log(`  Incomplete (interrupted): ${summary.incompleteCount > 0 ? colors.yellow : colors.green}${summary.incompleteCount}${colors.reset}`);
+    console.log(`  Failed conversions:       ${summary.failedCount > 0 ? colors.red : colors.green}${summary.failedCount}${colors.reset}`);
+    console.log();
+
+    if (summary.suspects.length === 0) {
+      console.log(`${colors.green}No suspect conversions found.${colors.reset}`);
+      console.log();
+      return;
     }
-    console.log();
-    console.log(`${colors.cyan}Run without --dry-run to actually delete these files.${colors.reset}`);
-    console.log();
-  } else if (mode === 'cleanup') {
-    console.log(`${colors.red}Deleting ${suspectFiles.length} suspect files...${colors.reset}`);
-    console.log();
 
-    let deleted = 0;
-    let errors = 0;
+    // List suspect files grouped by status
+    const incomplete = summary.suspects.filter((s) => s.status === 'processing');
+    const failed = summary.suspects.filter((s) => s.status === 'failed');
 
-    for (const file of suspectFiles) {
-      try {
-        await unlink(file.path);
-        console.log(`  ${colors.green}[DELETED]${colors.reset} ${file.path}`);
-        deleted++;
-      } catch (err) {
-        console.log(`  ${colors.red}[ERROR]${colors.reset} ${file.path}: ${(err as Error).message}`);
-        errors++;
+    if (incomplete.length > 0) {
+      console.log(`${colors.yellow}Incomplete conversions (interrupted):${colors.reset}`);
+      for (const suspect of incomplete) {
+        printSuspect(suspect);
       }
+      console.log();
     }
 
-    console.log();
-    console.log(`${colors.green}Deleted ${deleted} files${colors.reset}`);
-    if (errors > 0) {
-      console.log(`${colors.red}Failed to delete ${errors} files${colors.reset}`);
+    if (failed.length > 0) {
+      console.log(`${colors.red}Failed conversions:${colors.reset}`);
+      for (const suspect of failed) {
+        printSuspect(suspect);
+      }
+      console.log();
     }
-    console.log();
-    console.log(`${colors.cyan}Run the converter again to re-process these videos.${colors.reset}`);
-    console.log();
-  } else {
-    // Verify mode - just show summary
-    console.log(`${colors.cyan}To delete these files, run with --cleanup flag.${colors.reset}`);
-    console.log(`${colors.cyan}To preview deletion, run with --cleanup --dry-run flags.${colors.reset}`);
-    console.log();
+
+    // Handle cleanup mode
+    if (mode === 'cleanup-dry') {
+      const result = cleanupSuspectConversions(db, true);
+      console.log(`${colors.yellow}DRY RUN - Would clean up:${colors.reset}`);
+      console.log(`  MP3 files to delete:    ${result.deleted.length}`);
+      console.log(`  DB records to remove:   ${result.dbRecordsRemoved}`);
+      console.log();
+
+      if (result.deleted.length > 0) {
+        console.log(`${colors.dim}Files that would be deleted:${colors.reset}`);
+        for (const file of result.deleted) {
+          console.log(`  ${colors.dim}[WOULD DELETE]${colors.reset} ${file}`);
+        }
+        console.log();
+      }
+
+      console.log(`${colors.cyan}Run without --dry-run to actually delete these files.${colors.reset}`);
+      console.log();
+    } else if (mode === 'cleanup') {
+      console.log(`${colors.red}Cleaning up suspect conversions...${colors.reset}`);
+      console.log();
+
+      const result = cleanupSuspectConversions(db, false);
+
+      console.log(`${colors.green}Cleanup complete:${colors.reset}`);
+      console.log(`  MP3 files deleted:     ${result.deleted.length}`);
+      console.log(`  DB records removed:    ${result.dbRecordsRemoved}`);
+      console.log();
+
+      if (result.deleted.length > 0) {
+        console.log(`${colors.dim}Deleted files:${colors.reset}`);
+        for (const file of result.deleted) {
+          console.log(`  ${colors.green}[DELETED]${colors.reset} ${file}`);
+        }
+        console.log();
+      }
+
+      console.log(`${colors.cyan}Run the converter again to re-process these videos.${colors.reset}`);
+      console.log();
+    } else {
+      // Verify mode - just show summary
+      console.log(`${colors.cyan}To clean up these conversions, run with --cleanup flag.${colors.reset}`);
+      console.log(`${colors.cyan}To preview cleanup, run with --cleanup --dry-run flags.${colors.reset}`);
+      console.log();
+    }
+  } finally {
+    // Always close database
+    db.close();
   }
 }
 
@@ -177,58 +167,30 @@ function getModeDescription(mode: string): string {
     case 'cleanup-dry':
       return 'Cleanup (DRY RUN)';
     case 'cleanup':
-      return 'Cleanup (DELETE files)';
+      return 'Cleanup (DELETE files + DB records)';
     default:
       return mode;
   }
 }
 
 /**
- * Format validation reason for display
+ * Print a suspect conversion
  */
-function formatReason(reason?: string): string {
-  switch (reason) {
-    case 'too_small':
-      return 'File too small';
-    case 'invalid_structure':
-      return 'Invalid audio structure';
-    case 'no_audio':
-      return 'No audio stream';
-    case 'ffprobe_error':
-      return 'FFprobe validation failed';
-    case 'file_error':
-      return 'Cannot read file';
-    default:
-      return reason || 'Unknown';
-  }
-}
+function printSuspect(suspect: SuspectConversion): void {
+  console.log(`  Video: ${suspect.videoPath}`);
+  console.log(`    MP3:    ${suspect.mp3Path}`);
+  console.log(`    Status: ${suspect.status === 'processing' ? colors.yellow : colors.red}${suspect.status}${colors.reset}`);
 
-/**
- * Recursively scan for MP3 files
- */
-async function scanMP3Files(
-  dirPath: string,
-  recursive: boolean,
-  onMP3: (path: string) => Promise<void>,
-  onDir?: () => void
-): Promise<void> {
-  let entries;
-
-  try {
-    entries = await readdir(dirPath, { withFileTypes: true });
-  } catch {
-    return;
+  if (suspect.mp3Exists) {
+    console.log(`    MP3 exists: ${colors.yellow}Yes${colors.reset} (${suspect.mp3Size ? formatFileSize(suspect.mp3Size) : 'unknown size'})`);
+  } else {
+    console.log(`    MP3 exists: ${colors.dim}No${colors.reset}`);
   }
 
-  onDir?.();
-
-  for (const entry of entries) {
-    const fullPath = join(dirPath, entry.name);
-
-    if (entry.isDirectory() && recursive) {
-      await scanMP3Files(fullPath, recursive, onMP3, onDir);
-    } else if (entry.isFile() && extname(entry.name).toLowerCase() === '.mp3') {
-      await onMP3(fullPath);
-    }
+  if (suspect.error) {
+    console.log(`    Error:  ${colors.dim}${suspect.error}${colors.reset}`);
   }
+
+  const date = new Date(suspect.startedAt);
+  console.log(`    Started: ${colors.dim}${date.toLocaleString()}${colors.reset}`);
 }

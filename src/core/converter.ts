@@ -6,10 +6,11 @@
 
 import { spawn, type ChildProcess } from 'node:child_process';
 import { stat } from 'node:fs/promises';
-import { existsSync, unlinkSync } from 'node:fs';
+import { existsSync, unlinkSync, statSync } from 'node:fs';
 import type { ConversionJob, ConversionResult, FFmpegSettings, VideoFile } from './types.js';
 import { DEFAULT_FFMPEG_SETTINGS } from './types.js';
 import { getOutputPath } from './scanner.js';
+import type { ConversionDB } from './db.js';
 
 // Track active processes for shutdown handling
 const activeProcesses = new Map<string, ChildProcess>();
@@ -182,13 +183,15 @@ export async function validateFFmpeg(settings: FFmpegSettings = DEFAULT_FFMPEG_S
  * @param onProgress - Callback for progress updates (0-100)
  * @param settings - FFmpeg settings
  * @param verbose - Whether to log FFmpeg output
+ * @param db - Optional conversion database for tracking status
  * @returns ConversionResult
  */
 export async function executeConversion(
   job: ConversionJob,
   onProgress?: (progress: number, currentTime?: number) => void,
   settings: FFmpegSettings = DEFAULT_FFMPEG_SETTINGS,
-  verbose: boolean = false
+  verbose: boolean = false,
+  db?: ConversionDB
 ): Promise<ConversionResult> {
   const startTime = Date.now();
 
@@ -198,6 +201,9 @@ export async function executeConversion(
     job.error = 'File no longer exists';
     job.endTime = Date.now();
 
+    // Record failure in database
+    db?.failConversion(job.inputPath, 'File no longer exists');
+
     return {
       success: false,
       job,
@@ -205,6 +211,18 @@ export async function executeConversion(
       error: 'File no longer exists',
     };
   }
+
+  // Get video file size for database tracking
+  let videoSize: number | undefined;
+  try {
+    const stats = statSync(job.inputPath);
+    videoSize = stats.size;
+  } catch {
+    // Ignore stat errors, size is optional
+  }
+
+  // Record conversion start in database
+  db?.startConversion(job.inputPath, job.outputPath, videoSize);
 
   return new Promise((resolve) => {
     // Build FFmpeg arguments
@@ -287,6 +305,9 @@ export async function executeConversion(
         job.endTime = endTime;
         job.outputSize = outputSize;
 
+        // Record successful completion in database
+        db?.completeConversion(job.inputPath, outputSize ?? 0);
+
         resolve({
           success: true,
           job,
@@ -314,6 +335,9 @@ export async function executeConversion(
         job.error = errorMessage;
         job.endTime = endTime;
 
+        // Record failure in database
+        db?.failConversion(job.inputPath, errorMessage);
+
         resolve({
           success: false,
           job,
@@ -331,6 +355,9 @@ export async function executeConversion(
       job.status = 'failed';
       job.error = err.message;
       job.endTime = endTime;
+
+      // Record failure in database
+      db?.failConversion(job.inputPath, err.message);
 
       resolve({
         success: false,

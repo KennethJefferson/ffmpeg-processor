@@ -5,6 +5,7 @@ import type { CLIOptions, ConversionJob, QueueState, AppStatus } from '../../../
 import { scanDirectoryStreamParallel, validateInputDirectory, type ScanStats } from '../../../core/scanner.js';
 import { validateFFmpeg } from '../../../core/converter.js';
 import { createQueue, type ConversionQueue } from '../../../core/queue.js';
+import { openConversionDB, type ConversionDB } from '../../../core/db.js';
 
 /** Maximum number of jobs to keep in UI state (memory optimization) */
 const MAX_UI_JOBS = 500;
@@ -98,6 +99,7 @@ export const { use: useProcessorState, provider: ProcessorStateProvider } = crea
     const [ctrlCCount, setCtrlCCount] = createSignal(0);
 
     let queue: ConversionQueue | null = null;
+    let db: ConversionDB | null = null;
     let elapsedTimer: ReturnType<typeof setInterval> | null = null;
 
     // Update elapsed time every second during processing
@@ -115,6 +117,10 @@ export const { use: useProcessorState, provider: ProcessorStateProvider } = crea
     onCleanup(() => {
       if (elapsedTimer) {
         clearInterval(elapsedTimer);
+      }
+      // Close database connection
+      if (db) {
+        db.close();
       }
     });
 
@@ -157,7 +163,9 @@ export const { use: useProcessorState, provider: ProcessorStateProvider } = crea
         // If dry run, do a full scan first (batch mode)
         if (props.options.dryRun) {
           const { scanDirectory } = await import('../../../core/scanner.js');
-          const result = await scanDirectory(props.options.input, props.options.recursive);
+          // Initialize database for status checking (reads only, no writes in dry-run)
+          db = openConversionDB(props.options.input);
+          const result = await scanDirectory(props.options.input, props.options.recursive, undefined, db);
 
           if (result.filesToProcess.length === 0) {
             if (result.totalFound === 0) {
@@ -198,10 +206,14 @@ export const { use: useProcessorState, provider: ProcessorStateProvider } = crea
       setIsScanning(true);
       setScanStats({ totalFound: 0, toProcess: 0, skippedMP3: 0, skippedSRT: 0, errors: 0 });
 
-      // Create queue with callbacks
+      // Initialize conversion database in input directory
+      db = openConversionDB(props.options.input);
+
+      // Create queue with callbacks and database
       queue = createQueue({
         concurrency: props.options.concurrency,
         verbose: props.options.verbose,
+        db,
         callbacks: {
           onFileAdded: (job) => {
             // Add job to UI list with sliding window to prevent memory growth
@@ -277,7 +289,7 @@ export const { use: useProcessorState, provider: ProcessorStateProvider } = crea
           // Use parallel scanner for faster file discovery
           // Directory workers from CLI, 10 file workers per directory
           const parallelOptions = { directoryConcurrency: props.options.scanners, fileConcurrency: 10 };
-          for await (const event of scanDirectoryStreamParallel(props.options.input, props.options.recursive, parallelOptions)) {
+          for await (const event of scanDirectoryStreamParallel(props.options.input, props.options.recursive, parallelOptions, db!)) {
             // Check if shutdown was requested
             if (isShuttingDown()) {
               break;

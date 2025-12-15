@@ -41,17 +41,17 @@ fmp -i <path> [options]
 
 ### Verify/Cleanup Mode
 
-Handle incomplete or broken MP3 files from interrupted conversions:
+Handle incomplete or failed conversions using database tracking:
 
 ```bash
-# Find broken MP3s (size-based + FFprobe validation)
-ffmpeg-processor --verify -i "C:\Videos" -r
+# Find incomplete/failed conversions (checks .ffmpeg-processor.db)
+ffmpeg-processor --verify -i "C:\Videos"
 
 # Preview what would be deleted
-ffmpeg-processor --cleanup --dry-run -i "C:\Videos" -r
+ffmpeg-processor --cleanup --dry-run -i "C:\Videos"
 
-# Actually delete broken MP3s (then re-run normal conversion)
-ffmpeg-processor --cleanup -i "C:\Videos" -r
+# Delete broken MP3s and DB records (allows reconversion)
+ffmpeg-processor --cleanup -i "C:\Videos"
 ```
 
 ## Architecture
@@ -63,7 +63,8 @@ src/
 │   ├── scanner.ts           # Directory scanning (batch + streaming async generator)
 │   ├── converter.ts         # FFmpeg spawning, progress parsing, shutdown cleanup
 │   ├── queue.ts             # Parallel job queue with streaming mode support
-│   ├── verify.ts            # MP3 validation (size-based + FFprobe)
+│   ├── db.ts                # SQLite database for conversion status tracking
+│   ├── verify.ts            # MP3 validation (database-based + FFprobe)
 │   └── index.ts             # Core exports
 ├── runtime/
 │   ├── cli-setup.ts         # Entry point: Commander.js CLI parsing, TUI launch
@@ -94,7 +95,7 @@ src/
 
 **Parallel Streaming Pipeline**: Multiple directory scanners (configurable via `-s`) discover files in parallel. Queue (consumer) starts processing immediately while scanning continues. This enables "hot start" - no waiting for full scan before processing begins. Especially effective on network drives or wide directory trees.
 
-**Skip Logic**: Videos skipped if valid `.mp3` (>= 10KB) OR `.srt` with same basename exists. MP3 files smaller than 10KB are considered incomplete and will be reconverted.
+**Skip Logic**: Videos skipped if database status = 'complete' (and MP3 file still exists) OR `.srt` with same basename exists. Videos with status = 'processing' (interrupted) or 'failed' are reconverted.
 
 **FFmpeg Command**: `ffmpeg -i input -vn -ar 16000 -ac 1 -b:a 32k -acodec libmp3lame -y output.mp3`
 
@@ -102,11 +103,17 @@ src/
 - Ctrl+C once → Graceful: finish active jobs, skip pending (shows warning banner)
 - Ctrl+C twice → Immediate: kill all FFmpeg processes AND delete partial output files
 
+**Conversion Tracking**:
+- Database: `.ffmpeg-processor.db` created in input directory (SQLite)
+- Status flow: `processing` → `complete` or `failed`
+- Skip logic checks database status, not file size
+- Stale file detection: Files deleted before processing are handled gracefully
+
 **Incomplete MP3 Handling**:
-- Size validation: MP3s < 10KB are considered incomplete and reconverted automatically
-- Shutdown cleanup: Partial files from killed processes are deleted automatically
-- Verify mode: Use `--verify` to scan for broken MP3s (FFprobe validation)
-- Cleanup mode: Use `--cleanup` to delete broken MP3s (preview with `--dry-run`)
+- Database tracking: Interrupted conversions remain at status = 'processing'
+- Shutdown cleanup: Immediate shutdown (Ctrl+C twice) deletes partial output files
+- Verify mode: Use `--verify` to query database for incomplete/failed conversions
+- Cleanup mode: Use `--cleanup` to delete broken MP3s and DB records (allows reconversion)
 
 **UI Layout**: Single-column design with consolidated stats bar above file list. Stats bar shows Scanner status, Progress, I/O, and Performance info horizontally. File list displays with header showing Workers/Done/Failed/Total and sorted by status (running at top, completed fade down).
 
@@ -115,4 +122,5 @@ src/
 - Bun 1.3+ / Node.js 20.10+
 - OpenTUI + SolidJS (TUI)
 - Commander.js (CLI)
+- bun:sqlite (conversion status tracking)
 - Violet theme (#A855F7) with pink, cyan, teal, orange accents

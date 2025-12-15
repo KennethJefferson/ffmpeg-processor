@@ -17,6 +17,7 @@ import type {
 } from './types.js';
 import { DEFAULT_FFMPEG_SETTINGS } from './types.js';
 import { createConversionJob, executeConversion, killJob, killAllJobs } from './converter.js';
+import type { ConversionDB } from './db.js';
 
 /** Extended callbacks for streaming mode */
 export interface StreamingQueueCallbacks extends QueueCallbacks {
@@ -54,6 +55,7 @@ export class ConversionQueue {
   private settings: FFmpegSettings;
   private verbose: boolean;
   private callbacks: StreamingQueueCallbacks;
+  private db?: ConversionDB;
 
   private isPaused: boolean = false;
   private isShuttingDown: boolean = false;
@@ -71,11 +73,13 @@ export class ConversionQueue {
     settings?: FFmpegSettings;
     verbose?: boolean;
     callbacks?: StreamingQueueCallbacks;
+    db?: ConversionDB;
   } = {}) {
     this.concurrency = Math.min(Math.max(options.concurrency || 10, 1), 25);
     this.settings = options.settings || DEFAULT_FFMPEG_SETTINGS;
     this.verbose = options.verbose || false;
     this.callbacks = options.callbacks || {};
+    this.db = options.db;
   }
 
   /**
@@ -231,7 +235,8 @@ export class ConversionQueue {
         this.notifyStateChange();
       },
       this.settings,
-      this.verbose
+      this.verbose,
+      this.db
     ).then((result) => {
       this.activeJobs.delete(job.id);
 
@@ -422,6 +427,7 @@ export function createQueue(options?: {
   settings?: FFmpegSettings;
   verbose?: boolean;
   callbacks?: StreamingQueueCallbacks;
+  db?: ConversionDB;
 }): ConversionQueue {
   return new ConversionQueue(options);
 }

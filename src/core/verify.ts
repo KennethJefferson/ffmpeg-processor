@@ -2,15 +2,16 @@
  * MP3 Verification Module
  *
  * Provides utilities for validating MP3 files:
- * - Size-based validation (fast)
- * - FFprobe-based validation (deep, accurate)
+ * - Database-based validation (primary - checks conversion status)
+ * - FFprobe-based validation (deep, for troubleshooting)
  */
 
 import { spawn } from 'node:child_process';
 import { stat } from 'node:fs/promises';
-import { existsSync, statSync } from 'node:fs';
+import { existsSync, statSync, unlinkSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { DEFAULT_FFMPEG_SETTINGS } from './types.js';
+import type { ConversionDB, ConversionRecord } from './db.js';
 
 // ============================================================================
 // Constants
@@ -328,4 +329,154 @@ export async function validateMP3(
     size,
     details: `${ffprobeResult.duration?.toFixed(1)}s, ${ffprobeResult.codec}`,
   };
+}
+
+// ============================================================================
+// Database-Based Verification (Primary Method)
+// ============================================================================
+
+/** Result of finding suspect conversions */
+export interface SuspectConversion {
+  /** Video file path */
+  videoPath: string;
+  /** MP3 file path */
+  mp3Path: string;
+  /** Status in database */
+  status: 'processing' | 'failed';
+  /** Whether the MP3 file exists on disk */
+  mp3Exists: boolean;
+  /** Size of MP3 file if it exists */
+  mp3Size?: number;
+  /** Error message (for failed conversions) */
+  error?: string;
+  /** When conversion started */
+  startedAt: number;
+}
+
+/** Summary of database-based verification */
+export interface DBVerifySummary {
+  /** Number of incomplete conversions (status = 'processing') */
+  incompleteCount: number;
+  /** Number of failed conversions (status = 'failed') */
+  failedCount: number;
+  /** List of suspect conversions */
+  suspects: SuspectConversion[];
+  /** Number of complete conversions */
+  completeCount: number;
+}
+
+/**
+ * Find suspect conversions from the database.
+ *
+ * Suspect conversions are:
+ * - status = 'processing': Conversion was interrupted (partial MP3)
+ * - status = 'failed': Conversion failed with an error
+ *
+ * @param db - Conversion database instance
+ * @returns Summary of suspect conversions
+ */
+export function findSuspectConversions(db: ConversionDB): DBVerifySummary {
+  const incomplete = db.getIncomplete();
+  const failed = db.getFailed();
+
+  const suspects: SuspectConversion[] = [];
+
+  // Process incomplete (interrupted) conversions
+  for (const record of incomplete) {
+    const mp3Exists = existsSync(record.mp3_path);
+    let mp3Size: number | undefined;
+
+    if (mp3Exists) {
+      try {
+        mp3Size = statSync(record.mp3_path).size;
+      } catch {
+        // Ignore stat errors
+      }
+    }
+
+    suspects.push({
+      videoPath: record.video_path,
+      mp3Path: record.mp3_path,
+      status: 'processing',
+      mp3Exists,
+      mp3Size,
+      startedAt: record.started_at,
+    });
+  }
+
+  // Process failed conversions
+  for (const record of failed) {
+    const mp3Exists = existsSync(record.mp3_path);
+    let mp3Size: number | undefined;
+
+    if (mp3Exists) {
+      try {
+        mp3Size = statSync(record.mp3_path).size;
+      } catch {
+        // Ignore stat errors
+      }
+    }
+
+    suspects.push({
+      videoPath: record.video_path,
+      mp3Path: record.mp3_path,
+      status: 'failed',
+      mp3Exists,
+      mp3Size,
+      error: record.error ?? undefined,
+      startedAt: record.started_at,
+    });
+  }
+
+  return {
+    incompleteCount: incomplete.length,
+    failedCount: failed.length,
+    suspects,
+    completeCount: 0, // Can be counted separately if needed
+  };
+}
+
+/**
+ * Clean up suspect conversions.
+ *
+ * Deletes partial/failed MP3 files and removes database records
+ * to allow reconversion.
+ *
+ * @param db - Conversion database instance
+ * @param dryRun - If true, only report what would be deleted
+ * @returns List of deleted/would-be-deleted files
+ */
+export function cleanupSuspectConversions(
+  db: ConversionDB,
+  dryRun: boolean = false
+): { deleted: string[]; dbRecordsRemoved: number } {
+  const { suspects } = findSuspectConversions(db);
+  const deleted: string[] = [];
+  let dbRecordsRemoved = 0;
+
+  for (const suspect of suspects) {
+    // Delete MP3 file if it exists
+    if (suspect.mp3Exists) {
+      if (!dryRun) {
+        try {
+          unlinkSync(suspect.mp3Path);
+          deleted.push(suspect.mp3Path);
+        } catch {
+          // Ignore deletion errors - best effort
+        }
+      } else {
+        deleted.push(suspect.mp3Path);
+      }
+    }
+
+    // Delete database record to allow reconversion
+    if (!dryRun) {
+      db.deleteRecord(suspect.videoPath);
+      dbRecordsRemoved++;
+    } else {
+      dbRecordsRemoved++;
+    }
+  }
+
+  return { deleted, dbRecordsRemoved };
 }

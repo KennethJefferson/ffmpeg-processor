@@ -8,9 +8,9 @@ A CLI-based batch video-to-MP3 converter with a beautiful violet-themed Terminal
 - **Parallel Conversion** - Up to 25 concurrent FFmpeg processes
 - **Parallel Scanning** - Up to 20 concurrent directory scanners for fast file discovery
 - **Streaming Pipeline** - Processing starts immediately while scanning continues (hot start)
-- **Smart Skip Logic** - Automatically skips videos that already have valid `.mp3` or `.srt` files
-- **Incomplete MP3 Detection** - MP3s < 10KB are considered broken and automatically reconverted
-- **Verify/Cleanup Mode** - Scan for and delete broken MP3s from interrupted conversions
+- **Smart Skip Logic** - Automatically skips videos with completed conversions (database-tracked) or `.srt` files
+- **Database Tracking** - SQLite database tracks conversion status (`processing` → `complete` or `failed`)
+- **Verify/Cleanup Mode** - Find and fix incomplete/failed conversions using database queries
 - **Beautiful TUI** - Clean layout with consolidated stats bar and sorted file list
 - **Transcription Optimized** - Outputs small MP3 files (16kHz mono, 32kbps) perfect for speech-to-text
 - **Graceful Shutdown** - Ctrl+C once to finish active jobs, twice to force stop AND cleanup partial files
@@ -69,26 +69,36 @@ bun start -- -i "C:\Videos" -v
 
 ## Skip Logic
 
-The processor automatically skips video files that already have companion files with the same basename:
+The processor uses a SQLite database (`.ffmpeg-processor.db`) to track conversion status:
 
-- `video.mp4` + `video.mp3` (≥10KB) exists → **Skip** (already converted)
-- `video.mp4` + `video.mp3` (<10KB) exists → **Convert** (incomplete, will overwrite)
-- `video.mp4` + `video.srt` exists → **Skip** (already transcribed)
-- `video.mp4` alone → **Convert**
+- Database status = `complete` AND MP3 exists → **Skip** (already converted)
+- Database status = `processing` → **Convert** (interrupted, needs reconversion)
+- Database status = `failed` → **Convert** (previous attempt failed)
+- `video.srt` exists → **Skip** (already transcribed)
+- No database record → **Convert** (new file)
 
-### Handling Incomplete MP3s
+### Conversion Tracking
 
-If a conversion was interrupted (double Ctrl+C), the partial MP3 file is automatically deleted. Any remaining broken MP3s from previous runs can be found and removed:
+When processing starts, a `.ffmpeg-processor.db` file is created in the input directory. This database tracks:
+
+- **Status**: `processing` → `complete` or `failed`
+- **Timestamps**: When conversion started and completed
+- **File paths**: Source video and output MP3 paths
+- **Sizes**: Video and MP3 file sizes
+
+### Handling Incomplete Conversions
+
+If a conversion was interrupted (double Ctrl+C), the database record remains at status = `processing`. Use verify/cleanup mode to find and fix these:
 
 ```bash
-# Find broken MP3 files
-bun start -- --verify -i "C:\Videos" -r
+# Find incomplete/failed conversions
+bun start -- --verify -i "C:\Videos"
 
 # Preview what would be deleted
-bun start -- --cleanup --dry-run -i "C:\Videos" -r
+bun start -- --cleanup --dry-run -i "C:\Videos"
 
-# Actually delete broken MP3s
-bun start -- --cleanup -i "C:\Videos" -r
+# Delete broken MP3s and reset DB records (allows reconversion)
+bun start -- --cleanup -i "C:\Videos"
 ```
 
 ## Keyboard Controls
@@ -135,7 +145,7 @@ bun run build
 
 ```
 src/
-├── core/           # Business logic (scanner, converter, queue, verify)
+├── core/           # Business logic (scanner, converter, queue, db, verify)
 ├── runtime/        # Entry points (cli-setup.ts, verify-mode.ts)
 └── cli/tui/        # Terminal UI (SolidJS components, context, routes)
     └── component/  # UI components: logo, file-list, progress-bar
@@ -146,6 +156,7 @@ src/
 - **Runtime**: Bun / Node.js
 - **TUI**: OpenTUI + SolidJS
 - **CLI**: Commander.js
+- **Database**: bun:sqlite (conversion status tracking)
 - **Theme**: Violet (#A855F7) with accent colors
 - **Architecture**: Parallel producer-consumer streaming pipeline
 

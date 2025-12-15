@@ -482,7 +482,7 @@ Same as `-v`.
 
 ### Verify Mode (--verify)
 
-**Purpose**: Scan for broken or incomplete MP3 files without deleting them.
+**Purpose**: Find incomplete or failed conversions using the database.
 
 **Syntax**:
 ```
@@ -493,61 +493,74 @@ Same as `-v`.
 
 #### How It Works
 
-Verify mode scans for MP3 files and checks if they are valid:
-1. **Size check**: Files smaller than 10KB are considered incomplete
-2. **FFprobe validation**: If FFprobe is available, validates audio structure
+Verify mode queries the `.ffmpeg-processor.db` database in the input directory to find:
+1. **Incomplete conversions**: Status = `processing` (interrupted by shutdown)
+2. **Failed conversions**: Status = `failed` (FFmpeg error occurred)
+
+**Note**: The `-r` flag is not needed for verify/cleanup modes since the database tracks all conversions from that directory.
 
 #### Examples
 
-**Example 1: Scan current directory**
+**Example 1: Check for incomplete conversions**
 ```bash
 bun start -- --verify -i "C:\Videos"
 ```
-Scans `C:\Videos` for broken MP3 files.
-
-**Example 2: Recursive scan**
-```bash
-bun start -- --verify -i "C:\Videos" -r
-```
-Scans all subdirectories for broken MP3 files.
+Queries the database in `C:\Videos` for incomplete/failed conversions.
 
 #### Sample Output
 
 ```
 === FFmpeg Processor: Verify Mode ===
 
-FFprobe version: 6.0
-
 Configuration:
   Input:     C:\Videos
-  Recursive: Yes
   Mode:      Verify (report only)
-  Min size:  10KB
 
-Scanning for MP3 files...
-  Scanned 45 directories
+Checking conversion database...
 
 Results:
-  Total MP3 files:   150
-  Valid MP3 files:   147
-  Suspect MP3 files: 3
+  Incomplete (interrupted): 2
+  Failed conversions:       1
 
-Suspect files:
-  C:\Videos\clip1.mp3
-    Reason: File too small - 2KB < 10KB minimum
-  C:\Videos\subdir\video2.mp3
-    Reason: No audio stream - No audio stream found
-  C:\Videos\archive\broken.mp3
-    Reason: Invalid audio structure - Duration too short
+Incomplete conversions (interrupted):
+  Video: C:\Videos\lecture.mp4
+    MP3:    C:\Videos\lecture.mp3
+    Status: processing
+    MP3 exists: Yes (45.2 KB)
+    Started: 12/15/2024, 1:30:00 PM
 
-To delete these files, run with --cleanup flag.
+  Video: C:\Videos\meeting.mp4
+    MP3:    C:\Videos\meeting.mp3
+    Status: processing
+    MP3 exists: Yes (12.8 KB)
+    Started: 12/15/2024, 1:32:00 PM
+
+Failed conversions:
+  Video: C:\Videos\corrupted.mp4
+    MP3:    C:\Videos\corrupted.mp3
+    Status: failed
+    MP3 exists: No
+    Error:  Invalid or corrupted input file
+    Started: 12/15/2024, 1:25:00 PM
+
+To clean up these conversions, run with --cleanup flag.
+```
+
+#### No Database Found
+
+If the directory doesn't have a conversion database:
+```
+No conversion database found in this directory.
+Run a conversion first to create the tracking database.
+
+Database would be created at: C:\Videos/.ffmpeg-processor.db
 ```
 
 ---
 
 ### Cleanup Mode (--cleanup)
 
-**Purpose**: Delete broken or incomplete MP3 files.
+**Purpose**: Delete partial MP3 files AND remove database records to allow reconversion.
 
 **Syntax**:
 ```
@@ -558,41 +571,51 @@ To delete these files, run with --cleanup flag.
 
 #### How It Works
 
-Cleanup mode performs the same validation as verify mode, but then deletes the invalid files. Use with `--dry-run` to preview what would be deleted.
+Cleanup mode:
+1. Finds all incomplete (`processing`) and failed conversions in the database
+2. Deletes the MP3 files (if they exist)
+3. Removes the database records (allows the videos to be reconverted)
+
+Use with `--dry-run` to preview what would be deleted/removed.
 
 #### Examples
 
 **Example 1: Preview cleanup (safe)**
 ```bash
-bun start -- --cleanup --dry-run -i "C:\Videos" -r
+bun start -- --cleanup --dry-run -i "C:\Videos"
 ```
-Shows which files WOULD be deleted without actually deleting them.
+Shows what WOULD be deleted without actually doing it.
 
-**Example 2: Actually delete broken MP3s**
+**Example 2: Actually cleanup**
 ```bash
-bun start -- --cleanup -i "C:\Videos" -r
+bun start -- --cleanup -i "C:\Videos"
 ```
-Deletes all broken MP3 files found.
+Deletes partial MP3 files and removes database records.
 
 #### Sample Output (Dry Run)
 
 ```
 === FFmpeg Processor: Verify Mode ===
 
-FFprobe version: 6.0
-
 Configuration:
   Input:     C:\Videos
-  Recursive: Yes
   Mode:      Cleanup (DRY RUN)
-  Min size:  10KB
+
+Checking conversion database...
+
+Results:
+  Incomplete (interrupted): 2
+  Failed conversions:       1
 
 ...
 
-DRY RUN - Would delete 3 files:
-  [WOULD DELETE] C:\Videos\clip1.mp3
-  [WOULD DELETE] C:\Videos\subdir\video2.mp3
-  [WOULD DELETE] C:\Videos\archive\broken.mp3
+DRY RUN - Would clean up:
+  MP3 files to delete:    2
+  DB records to remove:   3
+
+Files that would be deleted:
+  [WOULD DELETE] C:\Videos\lecture.mp3
+  [WOULD DELETE] C:\Videos\meeting.mp3
 
 Run without --dry-run to actually delete these files.
 ```
@@ -600,13 +623,15 @@ Run without --dry-run to actually delete these files.
 #### Sample Output (Actual Cleanup)
 
 ```
-Deleting 3 suspect files...
+Cleaning up suspect conversions...
 
-  [DELETED] C:\Videos\clip1.mp3
-  [DELETED] C:\Videos\subdir\video2.mp3
-  [DELETED] C:\Videos\archive\broken.mp3
+Cleanup complete:
+  MP3 files deleted:     2
+  DB records removed:    3
 
-Deleted 3 files
+Deleted files:
+  [DELETED] C:\Videos\lecture.mp3
+  [DELETED] C:\Videos\meeting.mp3
 
 Run the converter again to re-process these videos.
 ```
@@ -614,14 +639,14 @@ Run the converter again to re-process these videos.
 #### Typical Workflow
 
 ```bash
-# Step 1: Find broken MP3s
-bun start -- --verify -i "C:\Videos" -r
+# Step 1: Find incomplete/failed conversions
+bun start -- --verify -i "C:\Videos"
 
-# Step 2: Preview what would be deleted
-bun start -- --cleanup --dry-run -i "C:\Videos" -r
+# Step 2: Preview what would be cleaned up
+bun start -- --cleanup --dry-run -i "C:\Videos"
 
-# Step 3: Actually delete (if preview looks correct)
-bun start -- --cleanup -i "C:\Videos" -r
+# Step 3: Actually cleanup (if preview looks correct)
+bun start -- --cleanup -i "C:\Videos"
 
 # Step 4: Re-run conversion to process the videos again
 bun start -- -i "C:\Videos" -r
@@ -724,40 +749,52 @@ bun start -- -i "C:\Downloads\NewVideos"
 
 ## Understanding the Skip Logic
 
-FFmpeg Processor automatically skips videos that appear to already be processed.
+FFmpeg Processor uses a SQLite database to track conversion status. The database file (`.ffmpeg-processor.db`) is created in the input directory when processing starts.
 
 ### Skip Rules
 
-A video file will be **skipped** if a file with the same name exists with:
-- `.mp3` extension **AND** size ≥ 10KB (valid, already converted)
-- `.srt` extension (already transcribed)
+A video file will be **skipped** if:
+- Database status = `complete` **AND** the MP3 file still exists
+- A `.srt` file exists with the same basename (already transcribed)
 
 A video file will be **converted** if:
-- No companion `.mp3` or `.srt` exists
-- An `.mp3` exists but is smaller than 10KB (considered incomplete/broken)
+- No database record exists (new file)
+- Database status = `processing` (interrupted conversion)
+- Database status = `failed` (previous attempt failed)
+- Database status = `complete` but MP3 is missing (user deleted it)
+
+### Database Status Flow
+
+```
+[New video discovered]
+        ↓
+[FFmpeg starts] → status = 'processing'
+        ↓
+    Success? ─────┬───── Yes → status = 'complete'
+                  └───── No  → status = 'failed'
+```
 
 ### Examples
 
 ```
 C:\Videos\
-├── lecture.mp4           → CONVERT (no companion files)
-├── meeting.mp4           → SKIP (meeting.mp3 exists and is ≥10KB)
-├── meeting.mp3           (15 KB - valid)
-├── broken.mp4            → CONVERT (broken.mp3 is too small)
-├── broken.mp3            (2 KB - incomplete, will be overwritten)
+├── lecture.mp4           → CONVERT (no DB record)
+├── meeting.mp4           → SKIP (DB status = 'complete', .mp3 exists)
+├── meeting.mp3           (successfully converted)
+├── interrupted.mp4       → CONVERT (DB status = 'processing')
+├── interrupted.mp3       (partial file from interruption)
+├── failed.mp4            → CONVERT (DB status = 'failed')
 ├── presentation.mp4      → SKIP (presentation.srt exists)
 ├── presentation.srt
-├── interview.mp4         → SKIP (both exist)
-├── interview.mp3
-└── interview.srt
+├── deleted.mp4           → CONVERT (DB status = 'complete' but .mp3 missing)
+└── .ffmpeg-processor.db  (conversion tracking database)
 ```
 
-### Why 10KB?
+### Database Location
 
-The 10KB minimum is based on the output format (16kHz mono, 32kbps):
-- A valid 1-second MP3 at 32kbps ≈ 4KB
-- A valid 3-second MP3 at 32kbps ≈ 12KB
-- Files smaller than 10KB are almost certainly incomplete from interrupted conversions
+The database is created in the **input directory** you specify:
+- `bun start -- -i "C:\Videos"` → creates `C:\Videos\.ffmpeg-processor.db`
+- `bun start -- -i "Z:\Archive"` → creates `Z:\Archive\.ffmpeg-processor.db`
 
 ### Checking Skip Status
 
@@ -925,23 +962,33 @@ Single file at a time with verbose output shows exactly what's wrong.
 **Solutions**:
 
 **Automatic (built-in)**:
-- MP3 files smaller than 10KB are automatically reconverted on the next run
-- Double Ctrl+C now automatically deletes partial files
+- Database tracks conversion status - interrupted conversions are reconverted automatically
+- Double Ctrl+C automatically deletes partial output files
+- Files with status = 'processing' (interrupted) are always reconverted
 
 **Manual cleanup**:
 ```bash
-# Step 1: Find broken MP3s
-bun start -- --verify -i "C:\Videos" -r
+# Step 1: Find incomplete/failed conversions
+bun start -- --verify -i "C:\Videos"
 
-# Step 2: Preview what would be deleted
-bun start -- --cleanup --dry-run -i "C:\Videos" -r
+# Step 2: Preview what would be cleaned up
+bun start -- --cleanup --dry-run -i "C:\Videos"
 
-# Step 3: Delete broken MP3s
-bun start -- --cleanup -i "C:\Videos" -r
+# Step 3: Delete partial MP3s and reset DB records
+bun start -- --cleanup -i "C:\Videos"
 
 # Step 4: Re-run conversion
 bun start -- -i "C:\Videos" -r
 ```
+
+### No database found in verify mode
+
+**Problem**: Running `--verify` shows "No conversion database found".
+
+**Solutions**:
+1. Run a normal conversion first - the database is created when processing starts
+2. Check that you're pointing to the correct input directory
+3. The database file is named `.ffmpeg-processor.db` in the input directory
 
 ---
 
@@ -959,8 +1006,8 @@ OPTIONAL:
   -s, --scanners <n>      Parallel directory scanners 1-20 (default: 5)
   -d, --dry-run           Preview without converting (default: false)
   -v, --verbose           Show FFmpeg output (default: false)
-  --verify                Scan for broken/incomplete MP3 files
-  --cleanup               Delete broken MP3 files (use with -d to preview)
+  --verify                Find incomplete/failed conversions (database query)
+  --cleanup               Delete partial MP3s + DB records (use with -d to preview)
 
 KEYBOARD:
   Ctrl+C (once)           Graceful shutdown (finish active jobs, shows warning)
@@ -981,16 +1028,23 @@ FORMATS:
   Input:  mp4, avi, mkv, wmv, mov, webm, flv
   Output: MP3 (16kHz mono, 32kbps) - optimized for transcription
 
-SKIP LOGIC:
-  - Skips videos with valid .mp3 (≥10KB) or .srt files
-  - MP3s < 10KB are considered incomplete and reconverted automatically
-  - Use --verify to find broken MP3s, --cleanup to delete them
+DATABASE TRACKING:
+  - .ffmpeg-processor.db created in input directory
+  - Status: 'processing' → 'complete' or 'failed'
+  - Skip logic checks database status, not file size
+  - Interrupted conversions (status = 'processing') are reconverted
 
-INCOMPLETE MP3 HANDLING:
-  - Size validation: MP3s < 10KB auto-reconverted
+SKIP LOGIC:
+  - Skips videos with DB status = 'complete' (AND .mp3 file exists)
+  - Skips videos with .srt files (already transcribed)
+  - Reconverts if status = 'processing' or 'failed'
+  - Reconverts if .mp3 was deleted (DB record cleaned up automatically)
+
+INCOMPLETE CONVERSION HANDLING:
+  - Database tracking: Interrupted = status stays 'processing'
   - Shutdown cleanup: Double Ctrl+C deletes partial files
-  - Verify mode: --verify scans for broken MP3s (FFprobe validation)
-  - Cleanup mode: --cleanup deletes broken MP3s
+  - Verify mode: --verify queries DB for incomplete/failed
+  - Cleanup mode: --cleanup deletes MP3s + removes DB records
 ```
 
 ---
