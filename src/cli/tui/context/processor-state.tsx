@@ -6,6 +6,36 @@ import { scanDirectoryStreamParallel, validateInputDirectory, type ScanStats } f
 import { validateFFmpeg } from '../../../core/converter.js';
 import { createQueue, type ConversionQueue } from '../../../core/queue.js';
 
+/** Maximum number of jobs to keep in UI state (memory optimization) */
+const MAX_UI_JOBS = 500;
+
+/**
+ * Trim old completed/failed jobs from the job list to prevent memory growth.
+ * Keeps running and pending jobs, removes oldest completed/failed first.
+ */
+function trimOldJobs(jobs: ConversionJob[], maxJobs: number): ConversionJob[] {
+  if (jobs.length <= maxJobs) return jobs;
+
+  // Separate by status
+  const running = jobs.filter((j) => j.status === 'running');
+  const pending = jobs.filter((j) => j.status === 'pending');
+  const terminal = jobs.filter((j) => j.status === 'completed' || j.status === 'failed' || j.status === 'cancelled');
+
+  // Always keep running and pending
+  const keep = [...running, ...pending];
+
+  // Calculate how many terminal jobs we can keep
+  const terminalSlots = maxJobs - keep.length;
+
+  if (terminalSlots > 0 && terminal.length > 0) {
+    // Sort terminal jobs by end time (newest first), keep most recent
+    const sortedTerminal = terminal.sort((a, b) => (b.endTime ?? 0) - (a.endTime ?? 0));
+    keep.push(...sortedTerminal.slice(0, terminalSlots));
+  }
+
+  return keep;
+}
+
 export interface ProcessorStateValue {
   // Status
   status: AppStatus;
@@ -174,8 +204,11 @@ export const { use: useProcessorState, provider: ProcessorStateProvider } = crea
         verbose: props.options.verbose,
         callbacks: {
           onFileAdded: (job) => {
-            // Add job to UI list
-            setJobs((prev) => [...prev, job]);
+            // Add job to UI list with sliding window to prevent memory growth
+            setJobs((prev) => {
+              const newJobs = [...prev, job];
+              return trimOldJobs(newJobs, MAX_UI_JOBS);
+            });
           },
           onJobStart: (job) => {
             setJobs((prev) => prev.map((j) => (j.id === job.id ? { ...j, status: 'running' } : j)));
@@ -187,8 +220,8 @@ export const { use: useProcessorState, provider: ProcessorStateProvider } = crea
             );
           },
           onJobComplete: (result) => {
-            setJobs((prev) =>
-              prev.map((j) =>
+            setJobs((prev) => {
+              const updated = prev.map((j) =>
                 j.id === result.job.id
                   ? {
                       ...j,
@@ -196,10 +229,13 @@ export const { use: useProcessorState, provider: ProcessorStateProvider } = crea
                       progress: result.success ? 100 : j.progress,
                       error: result.error,
                       outputSize: result.outputSize,
+                      endTime: Date.now(),
                     }
                   : j
-              )
-            );
+              );
+              // Trim old jobs periodically to prevent memory growth
+              return trimOldJobs(updated, MAX_UI_JOBS);
+            });
             setActiveCount((prev) => Math.max(0, prev - 1));
 
             if (result.success) {

@@ -17,6 +17,9 @@ const activeProcesses = new Map<string, ChildProcess>();
 // Track output paths for cleanup on immediate shutdown
 const activeOutputPaths = new Map<string, string>();
 
+/** Maximum stderr buffer size to prevent memory growth (10KB) */
+const MAX_STDERR_SIZE = 10 * 1024;
+
 /**
  * Generate a unique job ID
  */
@@ -189,6 +192,20 @@ export async function executeConversion(
 ): Promise<ConversionResult> {
   const startTime = Date.now();
 
+  // Validate file exists before starting (handles stale files from scan)
+  if (!existsSync(job.inputPath)) {
+    job.status = 'failed';
+    job.error = 'File no longer exists';
+    job.endTime = Date.now();
+
+    return {
+      success: false,
+      job,
+      processingTime: Date.now() - startTime,
+      error: 'File no longer exists',
+    };
+  }
+
   return new Promise((resolve) => {
     // Build FFmpeg arguments
     const args = [
@@ -221,6 +238,11 @@ export async function executeConversion(
     ffmpegProcess.stderr?.on('data', (data: Buffer) => {
       const output = data.toString();
       stderrOutput += output;
+
+      // Cap stderr buffer to prevent memory growth on long videos
+      if (stderrOutput.length > MAX_STDERR_SIZE) {
+        stderrOutput = stderrOutput.slice(-MAX_STDERR_SIZE);
+      }
 
       if (verbose) {
         process.stderr.write(output);

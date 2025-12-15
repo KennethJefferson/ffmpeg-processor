@@ -45,7 +45,7 @@ function StatusIcon(props: { status: ConversionJob['status']; isRecent?: boolean
 /**
  * Single file item in the list
  */
-function FileItem(props: { job: ConversionJob; isRecent?: boolean }) {
+function FileItem(props: { job: ConversionJob; now: number }) {
   const { theme } = useTheme();
 
   const fileName = () => basename(props.job.inputPath);
@@ -54,9 +54,12 @@ function FileItem(props: { job: ConversionJob; isRecent?: boolean }) {
     return name.length > 50 ? name.substring(0, 47) + '...' : name;
   };
 
+  // Check if recently completed inline (avoids Set creation per render)
+  const isRecent = () => isRecentlyCompleted(props.job, props.now);
+
   // Dim text for non-recent completed jobs
   const textColor = () => {
-    if (props.job.status === 'completed' && !props.isRecent) {
+    if (props.job.status === 'completed' && !isRecent()) {
       return theme.textMuted;
     }
     return theme.text;
@@ -64,7 +67,7 @@ function FileItem(props: { job: ConversionJob; isRecent?: boolean }) {
 
   return (
     <box flexDirection="row" gap={1}>
-      <StatusIcon status={props.job.status} isRecent={props.isRecent} />
+      <StatusIcon status={props.job.status} isRecent={isRecent()} />
       <text style={{ fg: textColor(), width: 52 }}>{truncatedName()}</text>
 
       <Show when={props.job.status === 'running'}>
@@ -77,7 +80,7 @@ function FileItem(props: { job: ConversionJob; isRecent?: boolean }) {
       </Show>
 
       <Show when={props.job.status === 'completed'}>
-        <text style={{ fg: props.isRecent ? theme.success : theme.textMuted }}>[completed]</text>
+        <text style={{ fg: isRecent() ? theme.success : theme.textMuted }}>[completed]</text>
         <Show when={props.job.outputSize}>
           <text style={{ fg: theme.textMuted }}> {formatFileSize(props.job.outputSize!)}</text>
         </Show>
@@ -174,15 +177,8 @@ export function FileList(props: FileListProps) {
   const hasMore = () => sortedJobs().length > visibleCount();
   const remainingCount = () => sortedJobs().length - visibleCount();
 
-  // Track which jobs are recently completed for highlighting
-  const recentlyCompletedIds = createMemo(() => {
-    const now = Date.now();
-    return new Set(
-      props.jobs
-        .filter((j) => isRecentlyCompleted(j, now))
-        .map((j) => j.id)
-    );
-  });
+  // Get current time for recently completed checks (computed once per render, not per item)
+  const now = () => Date.now();
 
   return (
     <box flexDirection="column" paddingX={2}>
@@ -191,7 +187,7 @@ export function FileList(props: FileListProps) {
         fallback={<text style={{ fg: theme.textMuted }}>No files to process</text>}
       >
         <For each={visibleJobs()}>
-          {(job) => <FileItem job={job} isRecent={recentlyCompletedIds().has(job.id)} />}
+          {(job) => <FileItem job={job} now={now()} />}
         </For>
 
         <Show when={hasMore()}>

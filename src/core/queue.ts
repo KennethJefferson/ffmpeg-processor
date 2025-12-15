@@ -39,10 +39,16 @@ export interface StreamingQueueCallbacks extends QueueCallbacks {
  * - Queue completes when scan is done AND all jobs are processed
  */
 export class ConversionQueue {
-  private jobs: ConversionJob[] = [];
+  // Active job tracking (memory-efficient - no unbounded arrays)
   private pendingJobs: ConversionJob[] = [];
   private activeJobs: Map<string, Promise<ConversionResult>> = new Map();
-  private completedResults: ConversionResult[] = [];
+
+  // Counters instead of storing all results (memory fix)
+  private totalAdded: number = 0;
+  private completedCount: number = 0;
+  private failedCount: number = 0;
+  private cancelledCount: number = 0;
+  private totalOutputSize: number = 0;
 
   private concurrency: number;
   private settings: FFmpegSettings;
@@ -80,8 +86,8 @@ export class ConversionQueue {
    */
   addFile(videoFile: VideoFile): ConversionJob {
     const job = createConversionJob(videoFile);
-    this.jobs.push(job);
     this.pendingJobs.push(job);
+    this.totalAdded++;
 
     // Notify that a file was added
     this.callbacks.onFileAdded?.(job);
@@ -104,13 +110,14 @@ export class ConversionQueue {
 
   /**
    * Get current queue state
+   * Note: jobs array is empty for memory efficiency - UI maintains its own job list
    */
   getState(): QueueState {
     return {
-      jobs: [...this.jobs],
+      jobs: [], // No longer storing all jobs - UI maintains its own windowed list
       activeJobIds: new Set(this.activeJobs.keys()),
-      completedCount: this.completedResults.filter((r) => r.success).length,
-      failedCount: this.completedResults.filter((r) => !r.success).length,
+      completedCount: this.completedCount,
+      failedCount: this.failedCount,
       isPaused: this.isPaused,
       isShuttingDown: this.isShuttingDown,
       isImmediateShutdown: this.isImmediateShutdown,
@@ -186,12 +193,8 @@ export class ConversionQueue {
       // If immediate shutdown, kill all active jobs and cleanup partial outputs
       if (this.isImmediateShutdown && this.activeJobs.size > 0) {
         killAllJobs(true);
-        for (const [jobId] of this.activeJobs) {
-          const job = this.jobs.find((j) => j.id === jobId);
-          if (job) {
-            job.status = 'cancelled';
-          }
-        }
+        // Count active jobs as cancelled (we don't track individual jobs anymore)
+        this.cancelledCount += this.activeJobs.size;
         this.activeJobs.clear();
         this.complete();
       }
@@ -231,7 +234,14 @@ export class ConversionQueue {
       this.verbose
     ).then((result) => {
       this.activeJobs.delete(job.id);
-      this.completedResults.push(result);
+
+      // Update counters instead of storing full result (memory fix)
+      if (result.success) {
+        this.completedCount++;
+        this.totalOutputSize += result.outputSize || 0;
+      } else {
+        this.failedCount++;
+      }
 
       // Start next job IMMEDIATELY before UI callbacks (minimize latency)
       this.processNext();
@@ -260,17 +270,13 @@ export class ConversionQueue {
    * Get queue summary
    */
   private getSummary(endTime: number = Date.now()): QueueSummary {
-    const successfulResults = this.completedResults.filter((r) => r.success);
-    const failedResults = this.completedResults.filter((r) => !r.success);
-    const cancelledJobs = this.jobs.filter((j) => j.status === 'cancelled');
-
     return {
-      total: this.jobs.length,
-      completed: successfulResults.length,
-      failed: failedResults.length,
-      cancelled: cancelledJobs.length + this.pendingJobs.length,
+      total: this.totalAdded,
+      completed: this.completedCount,
+      failed: this.failedCount,
+      cancelled: this.cancelledCount + this.pendingJobs.length,
       totalTime: endTime - this.startTime,
-      totalOutputSize: successfulResults.reduce((sum, r) => sum + (r.outputSize || 0), 0),
+      totalOutputSize: this.totalOutputSize,
     };
   }
 
@@ -301,7 +307,8 @@ export class ConversionQueue {
     this.isShuttingDown = true;
     this.notifyStateChange();
 
-    // Mark pending jobs as cancelled
+    // Mark pending jobs as cancelled and update counter
+    this.cancelledCount += this.pendingJobs.length;
     for (const job of this.pendingJobs) {
       job.status = 'cancelled';
     }
@@ -322,7 +329,8 @@ export class ConversionQueue {
     this.isImmediateShutdown = true;
     this.notifyStateChange();
 
-    // Mark pending jobs as cancelled
+    // Mark pending jobs as cancelled and update counter
+    this.cancelledCount += this.pendingJobs.length;
     for (const job of this.pendingJobs) {
       job.status = 'cancelled';
     }
@@ -331,13 +339,8 @@ export class ConversionQueue {
     // Kill all active processes and cleanup partial output files
     killAllJobs(true);
 
-    // Mark active jobs as cancelled
-    for (const [jobId] of this.activeJobs) {
-      const job = this.jobs.find((j) => j.id === jobId);
-      if (job) {
-        job.status = 'cancelled';
-      }
-    }
+    // Count active jobs as cancelled (we don't track them individually anymore)
+    this.cancelledCount += this.activeJobs.size;
     this.activeJobs.clear();
 
     // Complete immediately
@@ -352,28 +355,26 @@ export class ConversionQueue {
   }
 
   /**
-   * Cancel a specific job
+   * Cancel a specific job by ID
+   * Note: Only works for pending jobs since we no longer track all jobs
    */
   cancelJob(jobId: string): boolean {
-    const job = this.jobs.find((j) => j.id === jobId);
-    if (!job) return false;
-
-    if (job.status === 'pending') {
-      // Remove from pending queue
-      const index = this.pendingJobs.findIndex((j) => j.id === jobId);
-      if (index !== -1) {
-        this.pendingJobs.splice(index, 1);
-      }
+    // Check pending jobs
+    const pendingIndex = this.pendingJobs.findIndex((j) => j.id === jobId);
+    if (pendingIndex !== -1) {
+      const job = this.pendingJobs[pendingIndex];
+      this.pendingJobs.splice(pendingIndex, 1);
       job.status = 'cancelled';
+      this.cancelledCount++;
       this.notifyStateChange();
       return true;
     }
 
-    if (job.status === 'running') {
-      // Kill the active process
+    // Check if it's an active job
+    if (this.activeJobs.has(jobId)) {
       if (killJob(jobId)) {
         this.activeJobs.delete(jobId);
-        job.status = 'cancelled';
+        this.cancelledCount++;
         this.notifyStateChange();
         this.processNext();
         return true;
@@ -384,17 +385,18 @@ export class ConversionQueue {
   }
 
   /**
-   * Get a specific job by ID
+   * Get a specific job by ID (only finds pending jobs)
+   * Note: For memory efficiency, we only track pending jobs
    */
   getJob(jobId: string): ConversionJob | undefined {
-    return this.jobs.find((j) => j.id === jobId);
+    return this.pendingJobs.find((j) => j.id === jobId);
   }
 
   /**
-   * Get all jobs
+   * Get pending jobs only (for memory efficiency, we don't store all jobs)
    */
-  getAllJobs(): ConversionJob[] {
-    return [...this.jobs];
+  getPendingJobs(): ConversionJob[] {
+    return [...this.pendingJobs];
   }
 
   /**

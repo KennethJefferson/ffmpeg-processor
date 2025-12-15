@@ -188,6 +188,9 @@ export interface ParallelScanOptions {
   fileConcurrency?: number;
 }
 
+/** Maximum event buffer size before applying backpressure */
+const MAX_EVENT_BUFFER_SIZE = 1000;
+
 /**
  * Parallel streaming directory scanner (async generator)
  *
@@ -237,6 +240,13 @@ export async function* scanDirectoryStreamParallel(
     });
   };
 
+  // Wait for buffer to drain if it's too full (backpressure)
+  const waitForBufferSpace = async (): Promise<void> => {
+    while (eventBuffer.length >= MAX_EVENT_BUFFER_SIZE) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+  };
+
   // Process a single directory
   const processDirectory = async (dirPath: string): Promise<void> => {
     let entries;
@@ -245,11 +255,13 @@ export async function* scanDirectoryStreamParallel(
       entries = await readdir(dirPath, { withFileTypes: true });
     } catch (error) {
       stats.errors++;
+      await waitForBufferSpace();
       eventBuffer.push({ type: 'error', path: dirPath, error: (error as Error).message });
       notifyEvent();
       return;
     }
 
+    await waitForBufferSpace();
     eventBuffer.push({ type: 'directory', path: dirPath });
     notifyEvent();
 
@@ -275,6 +287,9 @@ export async function* scanDirectoryStreamParallel(
 
     // Process video files in parallel batches
     for (let i = 0; i < videoFiles.length; i += fileConcurrency) {
+      // Apply backpressure before processing batch
+      await waitForBufferSpace();
+
       const batch = videoFiles.slice(i, i + fileConcurrency);
       const results = await Promise.allSettled(
         batch.map(async (filePath) => {
