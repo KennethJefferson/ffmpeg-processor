@@ -1,5 +1,5 @@
 /** @jsxImportSource @opentui/solid */
-import { createSignal, createEffect, onCleanup } from 'solid-js';
+import { createSignal, createEffect, onCleanup, batch } from 'solid-js';
 import { createSimpleContext } from './helper.js';
 import type { CLIOptions, ConversionJob, QueueState, AppStatus } from '../../../core/types.js';
 import { scanDirectoryStreamParallel, validateInputDirectory, type ScanStats } from '../../../core/scanner.js';
@@ -55,6 +55,7 @@ export interface ProcessorStateValue {
   activeCount: number;
   completedCount: number;
   failedCount: number;
+  totalCount: number;
 
   // Timing
   startTime: number;
@@ -92,6 +93,7 @@ export const { use: useProcessorState, provider: ProcessorStateProvider } = crea
     const [activeCount, setActiveCount] = createSignal(0);
     const [completedCount, setCompletedCount] = createSignal(0);
     const [failedCount, setFailedCount] = createSignal(0);
+    const [totalCount, setTotalCount] = createSignal(0);
     const [startTime, setStartTime] = createSignal(0);
     const [elapsedTime, setElapsedTime] = createSignal(0);
     const [totalOutputSize, setTotalOutputSize] = createSignal(0);
@@ -127,7 +129,7 @@ export const { use: useProcessorState, provider: ProcessorStateProvider } = crea
     // Estimate remaining time based on progress
     const estimatedRemaining = () => {
       const completed = completedCount();
-      const total = jobs().length;
+      const total = totalCount();
       const elapsed = elapsedTime();
 
       if (completed === 0 || total === 0) return null;
@@ -202,6 +204,7 @@ export const { use: useProcessorState, provider: ProcessorStateProvider } = crea
       setElapsedTime(0);
       setCompletedCount(0);
       setFailedCount(0);
+      setTotalCount(0);
       setTotalOutputSize(0);
       setIsScanning(true);
       setScanStats({ totalFound: 0, toProcess: 0, skippedMP3: 0, skippedSRT: 0, errors: 0 });
@@ -216,6 +219,8 @@ export const { use: useProcessorState, provider: ProcessorStateProvider } = crea
         db,
         callbacks: {
           onFileAdded: (job) => {
+            // Increment actual total count (never decremented)
+            setTotalCount((prev) => prev + 1);
             // Add job to UI list with sliding window to prevent memory growth
             setJobs((prev) => {
               const newJobs = [...prev, job];
@@ -223,8 +228,10 @@ export const { use: useProcessorState, provider: ProcessorStateProvider } = crea
             });
           },
           onJobStart: (job) => {
-            setJobs((prev) => prev.map((j) => (j.id === job.id ? { ...j, status: 'running' } : j)));
-            setActiveCount((prev) => prev + 1);
+            batch(() => {
+              setJobs((prev) => prev.map((j) => (j.id === job.id ? { ...j, status: 'running' } : j)));
+              setActiveCount((prev) => prev + 1);
+            });
           },
           onJobProgress: (job, progress) => {
             setJobs((prev) =>
@@ -232,32 +239,34 @@ export const { use: useProcessorState, provider: ProcessorStateProvider } = crea
             );
           },
           onJobComplete: (result) => {
-            setJobs((prev) => {
-              const updated = prev.map((j) =>
-                j.id === result.job.id
-                  ? {
-                      ...j,
-                      status: result.success ? 'completed' : 'failed',
-                      progress: result.success ? 100 : j.progress,
-                      error: result.error,
-                      outputSize: result.outputSize,
-                      endTime: Date.now(),
-                    }
-                  : j
-              );
-              // Trim old jobs periodically to prevent memory growth
-              return trimOldJobs(updated, MAX_UI_JOBS);
-            });
-            setActiveCount((prev) => Math.max(0, prev - 1));
+            batch(() => {
+              setJobs((prev) => {
+                const updated = prev.map((j) =>
+                  j.id === result.job.id
+                    ? {
+                        ...j,
+                        status: result.success ? 'completed' : 'failed',
+                        progress: result.success ? 100 : j.progress,
+                        error: result.error,
+                        outputSize: result.outputSize,
+                        endTime: Date.now(),
+                      }
+                    : j
+                );
+                // Trim old jobs periodically to prevent memory growth
+                return trimOldJobs(updated, MAX_UI_JOBS);
+              });
+              setActiveCount((prev) => Math.max(0, prev - 1));
 
-            if (result.success) {
-              setCompletedCount((prev) => prev + 1);
-              if (result.outputSize) {
-                setTotalOutputSize((prev) => prev + result.outputSize!);
+              if (result.success) {
+                setCompletedCount((prev) => prev + 1);
+                if (result.outputSize) {
+                  setTotalOutputSize((prev) => prev + result.outputSize!);
+                }
+              } else {
+                setFailedCount((prev) => prev + 1);
               }
-            } else {
-              setFailedCount((prev) => prev + 1);
-            }
+            });
           },
           onScanComplete: () => {
             setIsScanning(false);
@@ -407,6 +416,9 @@ export const { use: useProcessorState, provider: ProcessorStateProvider } = crea
       },
       get failedCount() {
         return failedCount();
+      },
+      get totalCount() {
+        return totalCount();
       },
       get startTime() {
         return startTime();

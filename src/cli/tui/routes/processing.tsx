@@ -100,7 +100,7 @@ export function ProcessingRoute() {
         <box paddingX={2} paddingY={1}>
           <ProgressBar
             current={state.completedCount}
-            total={state.jobs.length}
+            total={state.totalCount}
             width={50}
             showCount
             variant={isComplete() ? 'success' : 'primary'}
@@ -109,7 +109,7 @@ export function ProcessingRoute() {
 
         {/* Stats panel */}
         <StatsPanel
-          totalFiles={state.jobs.length}
+          totalFiles={state.totalCount}
           completed={state.completedCount}
           failed={state.failedCount}
           skipped={skippedCount()}
@@ -148,7 +148,7 @@ export function ProcessingRoute() {
         <Show when={state.status === 'cancelled'}>
           <box paddingX={2} paddingY={1}>
             <text style={{ fg: theme.warning }}>
-              Processing cancelled. Completed {state.completedCount} of {state.jobs.length} files.
+              Processing cancelled. Completed {state.completedCount} of {state.totalCount} files.
             </text>
           </box>
         </Show>

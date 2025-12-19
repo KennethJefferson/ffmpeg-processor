@@ -251,9 +251,13 @@ export async function executeConversion(
 
     let duration: number | null = null;
     let stderrOutput = '';
+    let resolved = false; // Guard against callbacks after promise resolution
 
     // Parse stderr for progress and duration
     ffmpegProcess.stderr?.on('data', (data: Buffer) => {
+      // Skip processing if already resolved (prevents callbacks after completion)
+      if (resolved) return;
+
       const output = data.toString();
       stderrOutput += output;
 
@@ -285,6 +289,10 @@ export async function executeConversion(
     });
 
     ffmpegProcess.on('close', async (code) => {
+      // Guard against double resolution (close can fire with error)
+      if (resolved) return;
+      resolved = true;
+
       activeProcesses.delete(job.id);
       activeOutputPaths.delete(job.id);
       const endTime = Date.now();
@@ -348,6 +356,10 @@ export async function executeConversion(
     });
 
     ffmpegProcess.on('error', (err) => {
+      // Guard against double resolution (error can fire with close)
+      if (resolved) return;
+      resolved = true;
+
       activeProcesses.delete(job.id);
       activeOutputPaths.delete(job.id);
       const endTime = Date.now();

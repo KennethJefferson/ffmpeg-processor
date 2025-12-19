@@ -23,8 +23,10 @@ export function ProgressBar(props: ProgressBarProps) {
   const { theme } = useTheme();
 
   const width = () => props.width ?? 40;
-  const percentage = () => (props.total > 0 ? Math.round((props.current / props.total) * 100) : 0);
-  const filledWidth = () => (props.total > 0 ? Math.floor((props.current / props.total) * width()) : 0);
+  // Clamp percentage to 0-100 to prevent >100% display
+  const percentage = () => (props.total > 0 ? Math.min(100, Math.round((props.current / props.total) * 100)) : 0);
+  // Clamp filled width to prevent overflow
+  const filledWidth = () => (props.total > 0 ? Math.min(width(), Math.floor((props.current / props.total) * width())) : 0);
 
   const filledChar = '\u2588'; // █
   const emptyChar = '\u2591'; // ░
@@ -81,7 +83,8 @@ export function MiniProgressBar(props: MiniProgressBarProps) {
   const { theme } = useTheme();
 
   const width = () => props.width ?? 10;
-  const filledWidth = () => Math.floor((props.progress / 100) * width());
+  // Clamp progress to 0-100 and filled width to prevent overflow
+  const filledWidth = () => Math.min(width(), Math.floor((Math.min(100, props.progress) / 100) * width()));
 
   const filledChar = '\u2588'; // █
   const emptyChar = '\u2591'; // ░
