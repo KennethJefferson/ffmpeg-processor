@@ -23,6 +23,8 @@ export interface CLIOptions {
   verify: boolean;
   /** Cleanup mode: delete suspect MP3 files */
   cleanup: boolean;
+  /** Maximum number of files to convert (optional, no limit if undefined) */
+  limit?: number;
 }
 
 // ============================================================================

@@ -56,6 +56,7 @@ export class ConversionQueue {
   private verbose: boolean;
   private callbacks: StreamingQueueCallbacks;
   private db?: ConversionDB;
+  private limit?: number;
 
   private isPaused: boolean = false;
   private isShuttingDown: boolean = false;
@@ -74,12 +75,14 @@ export class ConversionQueue {
     verbose?: boolean;
     callbacks?: StreamingQueueCallbacks;
     db?: ConversionDB;
+    limit?: number;
   } = {}) {
     this.concurrency = Math.min(Math.max(options.concurrency || 10, 1), 25);
     this.settings = options.settings || DEFAULT_FFMPEG_SETTINGS;
     this.verbose = options.verbose || false;
     this.callbacks = options.callbacks || {};
     this.db = options.db;
+    this.limit = options.limit;
   }
 
   /**
@@ -87,8 +90,14 @@ export class ConversionQueue {
    *
    * In streaming mode, this can be called while processing is in progress.
    * The job will be picked up by the next available worker.
+   * Returns null if the file limit has been reached.
    */
-  addFile(videoFile: VideoFile): ConversionJob {
+  addFile(videoFile: VideoFile): ConversionJob | null {
+    // Check if limit reached before adding
+    if (this.isLimitReached()) {
+      return null;
+    }
+
     const job = createConversionJob(videoFile);
     this.pendingJobs.push(job);
     this.totalAdded++;
@@ -176,6 +185,13 @@ export class ConversionQueue {
    */
   isScanningComplete(): boolean {
     return this.isScanComplete;
+  }
+
+  /**
+   * Check if the file limit has been reached
+   */
+  isLimitReached(): boolean {
+    return this.limit !== undefined && this.totalAdded >= this.limit;
   }
 
   /**
@@ -428,6 +444,7 @@ export function createQueue(options?: {
   verbose?: boolean;
   callbacks?: StreamingQueueCallbacks;
   db?: ConversionDB;
+  limit?: number;
 }): ConversionQueue {
   return new ConversionQueue(options);
 }

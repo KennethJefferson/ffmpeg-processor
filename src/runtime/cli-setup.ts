@@ -47,6 +47,17 @@ function parseOptions(options: Record<string, unknown>): CLIOptions {
   const verify = Boolean(options.verify);
   const cleanup = Boolean(options.cleanup);
 
+  // Parse limit with validation
+  let limit: number | undefined;
+  if (options.limit !== undefined) {
+    const parsed = parseInt(options.limit as string, 10);
+    if (isNaN(parsed) || parsed < 1) {
+      console.error('Error: --limit must be a positive number');
+      process.exit(1);
+    }
+    limit = parsed;
+  }
+
   return {
     input: resolve(input),
     recursive: Boolean(options.recursive),
@@ -56,6 +67,7 @@ function parseOptions(options: Record<string, unknown>): CLIOptions {
     verbose: Boolean(options.verbose),
     verify,
     cleanup,
+    limit,
   };
 }
 
@@ -75,6 +87,7 @@ export async function runCli(argv: string[] = process.argv): Promise<void> {
     .option('-v, --verbose', 'Show detailed FFmpeg output', false)
     .option('--verify', 'Scan for suspect MP3 files (too small or invalid)', false)
     .option('--cleanup', 'Delete suspect MP3 files (use with --dry-run to preview)', false)
+    .option('-l, --limit <number>', 'Maximum files to convert (default: unlimited)')
     .action(async (options) => {
       const cliOptions = parseOptions(options);
 

@@ -216,6 +216,7 @@ export const { use: useProcessorState, provider: ProcessorStateProvider } = crea
       queue = createQueue({
         concurrency: props.options.concurrency,
         verbose: props.options.verbose,
+        limit: props.options.limit,
         db,
         callbacks: {
           onFileAdded: (job) => {
@@ -304,12 +305,20 @@ export const { use: useProcessorState, provider: ProcessorStateProvider } = crea
               break;
             }
 
+            // Stop scanning if limit reached
+            if (queue!.isLimitReached()) {
+              break;
+            }
+
             switch (event.type) {
               case 'file':
                 // Add file to queue immediately (hot start)
-                queue!.addFile(event.file);
-                stats.toProcess++;
-                stats.totalFound++;
+                // addFile returns null if limit reached
+                const added = queue!.addFile(event.file);
+                if (added) {
+                  stats.toProcess++;
+                  stats.totalFound++;
+                }
                 break;
 
               case 'skipped':

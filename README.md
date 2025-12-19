@@ -56,6 +56,7 @@ bun start -- -i "C:\Videos" -v
 | `--recursive` | `-r` | Search subdirectories | `false` |
 | `--concurrency <n>` | `-c` | Max parallel FFmpeg workers (1-25) | `10` |
 | `--scanners <n>` | `-s` | Parallel directory scanners (1-20) | `5` |
+| `--limit <n>` | `-l` | Max files to convert | unlimited |
 | `--dry-run` | `-d` | Preview without converting | `false` |
 | `--verbose` | `-v` | Show FFmpeg output | `false` |
 | `--verify` | - | Scan for broken/incomplete MP3 files | `false` |

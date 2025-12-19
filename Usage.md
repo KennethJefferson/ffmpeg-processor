@@ -14,6 +14,7 @@ This guide provides a comprehensive walkthrough of every command-line option ava
    - [Recursive Scanning (-r, --recursive)](#recursive-scanning--r---recursive)
    - [Concurrency (-c, --concurrency)](#concurrency--c---concurrency)
    - [Scanners (-s, --scanners)](#scanners--s---scanners)
+   - [Limit (-l, --limit)](#limit--l---limit)
    - [Dry Run (-d, --dry-run)](#dry-run--d---dry-run)
    - [Verbose Output (-v, --verbose)](#verbose-output--v---verbose)
    - [Verify Mode (--verify)](#verify-mode---verify)
@@ -358,6 +359,77 @@ Same as `-s 15`.
 - **Slow HDDs**: Too many parallel reads can cause thrashing
 - **Limited RAM**: Each scanner uses memory for directory listings
 - **Shared storage**: Be considerate of other users on network drives
+
+---
+
+### Limit (-l, --limit)
+
+**Purpose**: Cap the maximum number of files to convert in a single run.
+
+**Syntax**:
+```
+-l <number>
+--limit <number>
+```
+
+**Default**: Unlimited (converts all files found)
+
+#### How It Works
+
+When you specify a limit, the processor will:
+1. Start scanning and adding files to the queue
+2. Stop scanning once the limit is reached
+3. Process all files in the queue (up to the limit)
+4. Exit after completing those conversions
+
+This is useful for:
+- Testing on a small batch before processing thousands of files
+- Processing files in manageable chunks
+- Limiting resource usage during busy periods
+
+#### Examples
+
+**Example 1: Convert only 10 files**
+```bash
+bun start -- -i "C:\Videos" -r -l 10
+```
+Finds videos recursively but only converts the first 10.
+
+**Example 2: Quick test with 5 files**
+```bash
+bun start -- -i "C:\Videos" -r --limit 5
+```
+Great for testing your setup before a large batch.
+
+**Example 3: Process in batches of 100**
+```bash
+bun start -- -i "Z:\Archive" -r -l 100
+```
+Run multiple times to process 100 files per session.
+
+**Example 4: Combined with concurrency**
+```bash
+bun start -- -i "C:\Videos" -r -l 50 -c 5
+```
+Limit to 50 files with 5 parallel workers.
+
+#### Important Notes
+
+- **Limit counts files to convert, not skipped files** - Files already converted (with .mp3 or .srt) don't count toward the limit
+- **Scanner stops early** - Once the limit is reached, scanning stops immediately (saves time on large directories)
+- **Order is discovery order** - Files are processed in the order the scanner finds them (not alphabetical)
+
+#### Validation
+
+```bash
+# Invalid: zero
+bun start -- -i "C:\Videos" --limit 0
+# Error: --limit must be a positive number
+
+# Invalid: negative
+bun start -- -i "C:\Videos" --limit -5
+# Error: --limit must be a positive number
+```
 
 ---
 
@@ -1004,6 +1076,7 @@ OPTIONAL:
   -r, --recursive         Scan subdirectories (default: false)
   -c, --concurrency <n>   Parallel FFmpeg workers 1-25 (default: 10)
   -s, --scanners <n>      Parallel directory scanners 1-20 (default: 5)
+  -l, --limit <n>         Max files to convert (default: unlimited)
   -d, --dry-run           Preview without converting (default: false)
   -v, --verbose           Show FFmpeg output (default: false)
   --verify                Find incomplete/failed conversions (database query)

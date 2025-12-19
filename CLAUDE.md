@@ -33,6 +33,7 @@ fmp -i <path> [options]
 -r, --recursive          Search subdirectories
 -c, --concurrency <n>    Max parallel FFmpeg workers (1-25, default: 10)
 -s, --scanners <n>       Parallel directory scanners (1-20, default: 5)
+-l, --limit <n>          Max files to convert (default: unlimited)
 -d, --dry-run            Preview files without converting
 -v, --verbose            Show FFmpeg output
 --verify                 Scan for suspect MP3 files (too small or invalid)
